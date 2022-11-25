@@ -2,11 +2,9 @@
 
 typedef enum {
   TpSuccess,
-  TpUnderflow = -1,
-  TpOverflow = -2,
-  TpUnsupportedSymbol = -3,
-  TpHardwareFault = -4,
-  TpAlreadyRunning = -5
+  TpHardwareFault = -1,
+  TpAlreadyRunning = -2,
+  TpInvalidParameter = -3
 } TpStatus;
 
 #define TP_ERROR(status) ((status) < 0)

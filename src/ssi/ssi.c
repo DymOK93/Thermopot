@@ -53,7 +53,7 @@ static bool SsipValidateValue(SsiValue value) {
 
 static TpStatus SsipSetValue(SsiValue value, bool is_number) {
   if (!SsipValidateValue(value)) {
-    return TpUnsupportedSymbol;
+    return TpInvalidParameter;
   }
   g_ssi_state.value = value;
   g_ssi_state.is_number = is_number;
@@ -227,11 +227,8 @@ TpStatus SsiSetValue(SsiValue value) {
 }
 
 TpStatus SsiSetNumber(int16_t number) {
-  if (number < SSI_NUMBER_MIN) {
-    return TpUnderflow;
-  }
-  if (number > SSI_NUMBER_MAX) {
-    return TpOverflow;
+  if (number < SSI_NUMBER_MIN || number > SSI_NUMBER_MAX) {
+    return TpInvalidParameter;
   }
   return SsipSetValue(SsipParseNumber(number), true);
 }

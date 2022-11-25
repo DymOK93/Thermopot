@@ -3,9 +3,14 @@
 
 #include <stdint.h>
 
+#define HM_VOLTAGE_FREQUENCY 50
 #define HM_POWER_FACTOR_MIN 0
 #define HM_POWER_FACTOR_MAX 100
 
+/**
+ * @brief Initializes the heater manager
+ * @return TpSuccess
+ */
 TpStatus HmInitialize(void);
 
 /**
@@ -20,7 +25,8 @@ uint8_t HmGetPowerFactor(void);
  * HM_POWER_FACTOR_MAX]
  * @remark If power_factor == HM_POWER_FACTOR_MIN, turns off the heating,
  * otherwise - turns on
- * @return TpSuccess on success of TpOverflow if power_factor >
- * HM_POWER_FACTOR_MAX
+ * @return
+ *    - TpInvalidParameter if power_factor > HM_POWER_FACTOR_MAX
+ *    - TpSuccess otherwise
  */
 TpStatus HmSetPowerFactor(uint8_t power_factor);
