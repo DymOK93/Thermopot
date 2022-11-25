@@ -19,7 +19,7 @@ target_include_directories(controller
         PUBLIC 
             ${CMAKE_CURRENT_SOURCE_DIR}
         PRIVATE 
-            ${PHOTO_VIEWER_SOURCE_DIR})
+            ${THERMOPOT_SOURCE_DIR})
 
 target_link_libraries(controller PUBLIC stm32::f051r8)
 

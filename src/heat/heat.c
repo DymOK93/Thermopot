@@ -46,11 +46,11 @@ static void HmpSetupTimer() {
    * 7. Main output enable
    */
   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM15EN);
-  TIM6->PSC = (uint16_t)(SystemCoreClock / 1000000 - 1);  // (1)
-  SET_BIT(TIM15->CR1, TIM_CR1_OPM);                       // (2)
-  SET_BIT(TIM15->CCMR1, TIM_CCMR1_OC1M);                  // (3)
-  SET_BIT(TIM15->CCER, TIM_CCER_CC1E);                    // (4)
-  CLEAR_BIT(TIM15->CCER, TIM_CCER_CC2P);                  // (5)
+  TIM15->PSC = (uint16_t)(SystemCoreClock / 1000000 - 1);  // (1)
+  SET_BIT(TIM15->CR1, TIM_CR1_OPM);                        // (2)
+  SET_BIT(TIM15->CCMR1, TIM_CCMR1_OC1M);                   // (3)
+  SET_BIT(TIM15->CCER, TIM_CCER_CC1E);                     // (4)
+  CLEAR_BIT(TIM15->CCER, TIM_CCER_CC2P);                   // (5)
   SET_BIT(TIM15->SMCR, TIM_SMCR_SMS_1 | TIM_SMCR_SMS_2 | TIM_SMCR_TS_2 |
                            TIM_SMCR_TS_1);  // (6)
   SET_BIT(TIM15->BDTR, TIM_BDTR_MOE);       // (7)

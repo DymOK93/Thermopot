@@ -1,4 +1,4 @@
-set(PHOTO_VIEWER_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(THERMOPOT_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_subdirectory(control)
 add_subdirectory(heat)
