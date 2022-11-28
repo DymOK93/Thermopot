@@ -11,7 +11,7 @@
 #define TM_TEMPERATURE_MAX 100                              // 100.0
 
 #define TM_TEMPERATURE_POLLING_PERIOD 500
-#define TM_TIMER_INTERRUPT_PRIORITY 2
+#define TM_TIMER_INTERRUPT_PRIORITY 1
 
 typedef struct {
   TmMode mode;
@@ -92,10 +92,10 @@ TpStatus TmInitialize(void) {
 }
 
 TpStatus TmQueryTemperature(FixedPoint16* temperature) {
-  const TpStatus status = TmpGetStatus();
+  /*const TpStatus status = TmpGetStatus();
   if (!TP_SUCCESS(status)) {
     return status;
-  }
+  }*/
   if (!temperature) {
     return TpInvalidParameter;
   }
