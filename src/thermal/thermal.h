@@ -1,21 +1,17 @@
 #pragma once
+#include <tools/fixed_point.h>
 #include <tools/status.h>
 
 #include <stdbool.h>
-#include <stdint.h>
 
-#define TM_TEMPERATURE_MIN 0     // 0.0
-#define TM_TEMPERATURE_MAX 1000  // 100.0
-#define TM_TEMPERATURE_STEP 5    // 0.5
-
-#define TM_TIMER_INTERRUPT_PRIORITY 2
-#define TM_USART_INTERRUPT_PRIORITY 2
+extern const FixedPoint16 TmTemperatureMin;
+extern const FixedPoint16 TmTemperatureMax;
 
 /**
  * @enum TmMode
  * @brief Heater power control mode
  */
-typedef enum { TmModeRelay, TmModePid, TmModeMax } TmMode;
+typedef enum { TmModeRelay, TmModePid, TmModeCount } TmMode;
 
 /**
  * @brief Initializes the thermal manager
@@ -42,7 +38,7 @@ TpStatus TmSetState(bool enable);
  *    - TpInvalidParameter if temperature is NULL
  *    - TpSuccess otherwise
  */
-TpStatus TmQueryTemperature(uint16_t* temperature);
+TpStatus TmQueryTemperature(FixedPoint16* temperature);
 
 /**
  * @brief Sets power control mode
@@ -62,4 +58,4 @@ TpStatus TmSetMode(TmMode mode);
  *    - TpInvalidParameter if value > TM_TEMPERATURE_MAX
  *    - TpSuccess otherwise
  */
-TpStatus TmSetTemperaturePoint(uint16_t value);
+TpStatus TmSetTemperaturePoint(FixedPoint16 value);

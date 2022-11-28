@@ -6,19 +6,24 @@
 
 #include <stm32f0xx.h>
 
+#define TM_TEMPERATURE_HYSTERESIS 5
+#define TM_TEMPERATURE_MIN (0 + TM_TEMPERATURE_HYSTERESIS)  // 5.0
+#define TM_TEMPERATURE_MAX 100                              // 100.0
+
 #define TM_TEMPERATURE_POLLING_PERIOD 500
+#define TM_TIMER_INTERRUPT_PRIORITY 2
 
 typedef struct {
-  uint16_t current_temperature;
-  uint16_t temperature_point;
   TmMode mode;
-  Ds18b20 temperature_sensor;
+  TpStatus status;
+  FixedPoint16 current_temperature;
+  FixedPoint16 temperature_point;
 } TmState;
 
-static TmState g_tm_state = {.current_temperature = TM_TEMPERATURE_MIN,
-                             .temperature_point = TM_TEMPERATURE_MIN,
-                             .mode = TmModeRelay,
-                             .temperature_sensor = {.transceiver = USART2}};
+const FixedPoint16 TmTemperatureMin = {TM_TEMPERATURE_MIN, 0};
+const FixedPoint16 TmTemperatureMax = {TM_TEMPERATURE_MAX, 0};
+
+static TmState g_tm_state = {.mode = TmModeRelay, .status = TpSuccess};
 
 static void TmpPrepareGpio(void) {
   /**
@@ -26,16 +31,11 @@ static void TmpPrepareGpio(void) {
    * 2. Using external 4.7 kOhm pull-up is highly recommended
    * 3. Select AF1 (USARTx_TX) for PA14
    */
-  SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOAEN);
-  SET_BIT(GPIOB->MODER, GPIO_MODER_MODER14_1);  // (1)
-  SET_BIT(GPIOA->OTYPER, GPIO_OTYPER_OT_14);
-  SET_BIT(GPIOA->PUPDR, GPIO_PUPDR_PUPDR14_0);  // (2)
-  SET_BIT(GPIOB->AFR[1], 0x01000000);           // (3)
-}
-
-static TpStatus TmpSetupSensor(void) {
-  SET_BIT(RCC->APB1ENR, RCC_APB1ENR_USART2EN);
-  return DsInitialize(&g_tm_state.temperature_sensor);
+  //SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOAEN);
+  //SET_BIT(GPIOA->MODER, GPIO_MODER_MODER14_1);  // (1)
+  //SET_BIT(GPIOA->OTYPER, GPIO_OTYPER_OT_14);
+  //SET_BIT(GPIOA->PUPDR, GPIO_PUPDR_PUPDR14_0);  // (2)
+  //SET_BIT(GPIOA->AFR[1], 0x01000000);           // (3)
 }
 
 static void TmpSetupTimer() {
@@ -55,32 +55,43 @@ static void TmpSetupTimer() {
 }
 
 static TpStatus TmpGetStatus(void) {
-  return TpSuccess;
+  return g_tm_state.status;
 }
 
-static TpStatus TmpTryStart(void) {
+static void TmpStart(void) {
   SET_BIT(TIM16->CR1, TIM_CR1_CEN);
-  return TmpGetStatus();
 }
 
-static TpStatus TmpTryStop(void) {
-  const TpStatus status = TmpGetStatus();
-  if (!TP_SUCCESS(status)) {
-    return status;
-  }
+static void TmpStop(void) {
   CLEAR_BIT(TIM16->CR1, TIM_CR1_CEN);
   HmSetPowerFactor(0);
-  return TpSuccess;
+}
+
+static void TmpUpdateHeaterState(void) {}
+
+static bool TmpUpdateTemperature(TpStatus status, FixedPoint16 value) {
+  g_tm_state.status = status;
+  if (!TP_SUCCESS(status)) {
+    TmpStop();
+    return false;
+  }
+  g_tm_state.current_temperature = value;
+  TmpUpdateHeaterState();
+  return true;
 }
 
 TpStatus TmInitialize(void) {
+  g_tm_state.current_temperature = TmTemperatureMin;
+  g_tm_state.temperature_point = TmTemperatureMin;
+
   TmpPrepareGpio();
-  RET_IF_ERROR(TmpSetupSensor());
+  RET_IF_ERROR(DsInitialize());
   TmpSetupTimer();
+
   return TpSuccess;
 }
 
-TpStatus TmQueryTemperature(uint16_t* temperature) {
+TpStatus TmQueryTemperature(FixedPoint16* temperature) {
   const TpStatus status = TmpGetStatus();
   if (!TP_SUCCESS(status)) {
     return status;
@@ -93,29 +104,29 @@ TpStatus TmQueryTemperature(uint16_t* temperature) {
 }
 
 TpStatus TmSetState(bool enable) {
-  if (!enable) {
-    return TmpTryStop();
+  if (enable) {
+    TmpStart();
+    return TmpGetStatus();
   }
-  return TmpTryStart();
-}
-
-uint16_t TmGetCurrentTemperature(void) {
-  return g_tm_state.current_temperature;
+  const TpStatus status = TmpGetStatus();
+  RET_IF_ERROR(status);
+  TmpStop();
+  return TpSuccess;
 }
 
 TpStatus TmSetMode(TmMode mode) {
   if (TP_SUCCESS(TmpGetStatus())) {
     return TpAlreadyRunning;
   }
-  if (mode >= TmModeMax) {
+  if (mode >= TmModeCount) {
     return TpInvalidParameter;
   }
   g_tm_state.mode = mode;
   return TpSuccess;
 }
 
-TpStatus TmSetTemperaturePoint(uint16_t value) {
-  if (value > TM_TEMPERATURE_MAX) {
+TpStatus TmSetTemperaturePoint(FixedPoint16 value) {
+  if (FpGreater(value, TmTemperatureMax)) {
     return TpInvalidParameter;
   }
   g_tm_state.temperature_point = value;
@@ -123,5 +134,5 @@ TpStatus TmSetTemperaturePoint(uint16_t value) {
 }
 
 void TIM16_IRQHandler(void) {
-  g_tm_state.current_temperature = DsReadTemperature(&g_tm_state.temperature_sensor);
+  DsReadTemperatureAsync(&TmpUpdateTemperature);
 }
