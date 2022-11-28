@@ -1,12 +1,12 @@
 #pragma once
+#include <tools/fixed_point.h>
 #include <tools/status.h>
 
 #include <stdbool.h>
-#include <stdint.h>
 
 #define SSI_PANEL_SIZE 4
-#define SSI_NUMBER_MIN (-999)  // -99.9
-#define SSI_NUMBER_MAX (9999)  // 9999
+#define SSI_NUMBER_MIN (-99)  // -99.0
+#define SSI_NUMBER_MAX 999    // 999.0
 
 typedef struct {
   char str[SSI_PANEL_SIZE];
@@ -17,4 +17,4 @@ void SsiSetState(bool enable);
 
 SsiValue SsiGetValue(void);
 TpStatus SsiSetValue(SsiValue value);
-TpStatus SsiSetNumber(int16_t number);
+TpStatus SsiSetNumber(FixedPoint16 number);

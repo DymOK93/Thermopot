@@ -2,49 +2,54 @@
 
 #include <tools/utils.h>
 
-#include <stdbool.h>
+#include <string.h>
+
+#include <stm32f0xx.h>
 
 #define DS_LISTEN_BAUD 9600
 #define DS_SEND_RECV_BAUD 115200
 
-void DspUpdateBaudrate(USART_TypeDef* transceiver, uint32_t baud) {
-  CLEAR_BIT(transceiver->CR1, USART_CR1_UE);
-  transceiver->BRR = (uint16_t)(SystemCoreClock / baud);
-  SET_BIT(transceiver->CR1, USART_CR1_UE);
-}
+typedef struct {
+  temperature_reader_t temperature_reader;
+} DsState;
 
-void DspSetupTransceiver(USART_TypeDef* transceiver) {
-  SET_BIT(transceiver->CR3, USART_CR3_HDSEL);
-  SET_BIT(transceiver->CR1, USART_CR1_RE | USART_CR1_TE);
-}
+static DsState g_ds_state = {NULL};
 
-void DspSend(USART_TypeDef* transceiver, uint8_t value) {}
-uint8_t DspEchoRead(USART_TypeDef* transceiver) {}
+//static void DspUpdateBaud(USART_TypeDef* transceiver, uint32_t baud) {
+//  CLEAR_BIT(transceiver->CR1, USART_CR1_UE);
+//  transceiver->BRR = (uint16_t)(SystemCoreClock / baud);
+//  SET_BIT(transceiver->CR1, USART_CR1_UE);
+//}
 
-bool DspDetectDevice(USART_TypeDef* transceiver) {
-  DspUpdateBaudrate(transceiver, DS_LISTEN_BAUD);
-  DspSend(transceiver, 0xF0);
-  DspUpdateBaudrate(transceiver, DS_SEND_RECV_BAUD);
-  return true;
-}
+//static void DspSetupTransceiver(USART_TypeDef* transceiver) {
+//  SET_BIT(transceiver->CR3, USART_CR3_HDSEL);
+//  SET_BIT(transceiver->CR1, USART_CR1_RE | USART_CR1_TE);
+//}
+//
+//static void DspSend(USART_TypeDef* transceiver, uint8_t value) {}
 
-TpStatus DsInitialize(Ds18b20* sensor) {
-  if (!sensor || !sensor->transceiver) {
-    return TpInvalidParameter;
-  }
-  DspSetupTransceiver(sensor->transceiver);
-  if (!DspDetectDevice(sensor->transceiver)) {
-    return TpDeviceNotConnected;
-  }
+//static bool DspDetectDevice(USART_TypeDef* transceiver) {
+//  DspUpdateBaud(transceiver, DS_LISTEN_BAUD);
+//  DspSend(transceiver, 0xF0);
+//  DspUpdateBaud(transceiver, DS_SEND_RECV_BAUD);
+//  return true;
+//}
+
+static void DspInitiateTemperatureRequest(void) {}
+
+TpStatus DsInitialize(void) {
   return TpSuccess;
 }
 
-TpStatus DsStartMeasurement(Ds18b20* sensor) {
-  (void)sensor;
+TpStatus DsStartMeasurement(void) {
   return TpSuccess;
 }
 
-uint16_t DsReadTemperature(Ds18b20* sensor) {
-  (void)sensor;
-  return 0;
+TpStatus DsReadTemperatureAsync(temperature_reader_t reader) {
+  if (g_ds_state.temperature_reader) {
+    return TpAlreadyRunning;
+  }
+  g_ds_state.temperature_reader = reader;
+  DspInitiateTemperatureRequest();
+  return TpSuccess;
 }

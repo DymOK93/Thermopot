@@ -3,23 +3,48 @@
 #include <tools/utils.h>
 
 #include <math.h>
+#include <stdint.h>
 #include <stdlib.h>
 
 #include <stm32f0xx.h>
+
+#define SSI_FP_INDEX 1
+#define SSI_FP_DOT 0x80
 
 typedef struct {
   SsiValue value;
   bool is_number;
   uint8_t idx;
+  const FixedPoint16 min_number;
+  const FixedPoint16 max_number;
 } SsiState;
 
-static SsiState g_ssi_state = {0};
+static SsiState g_ssi_state = {.value = {{0}},
+                               .is_number = false,
+                               .idx = 0,
+                               .min_number = {SSI_NUMBER_MIN, 0},
+                               .max_number = {SSI_NUMBER_MAX, 0}};
 
-static void SsipPrepareGpio() {
-  // TODO
+static void SsipPrepareGpio(void) {
+  /**
+   * 1. Activate PA5, PA7 in the alternative function mode; AF0
+   * (SPI1_SCK/SPI1_MOSI) already selected
+   */
+  SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOAEN);
+  SET_BIT(GPIOA->MODER, GPIO_MODER_MODER5_1 | GPIO_MODER_MODER7_1);  // (1)
 }
 
-static void SsipSetupTimer() {
+static void SsipSetupSpi(void) {
+  /**
+   * 1. The maximum frequency of 74HC595 is about 4MHz, the maximum frequency of
+   * AHB and APB2 is 48MHz, so set SCK as APB2_CLK/16
+   */
+  SET_BIT(RCC->APB2ENR, RCC_APB2ENR_SPI1EN);
+  SET_BIT(SPI1->CR1, SPI_CR1_BR_0 | SPI_CR1_BR_1);  // (1)
+
+}
+
+static void SsipSetupTimer(void) {
   SET_BIT(RCC->APB1ENR, RCC_APB1ENR_TIM6EN);
   TIM6->ARR = 2;  // 500 Hz / 4 => 125 FPS
   SET_BIT(TIM6->DIER, TIM_DIER_UIE);
@@ -33,7 +58,7 @@ static void SsipStart() {
   SET_BIT(TIM6->CR1, TIM_CR1_CEN);
 }
 
-static void SsipStop() {
+static void SsipStop(void) {
   CLEAR_BIT(TIM6->CR1, TIM_CR1_CEN);
   NVIC_DisableIRQ(TIM6_DAC_IRQn);
 }
@@ -60,10 +85,10 @@ static TpStatus SsipSetValue(SsiValue value, bool is_number) {
   return TpSuccess;
 }
 
-static SsiValue SsipParseNumber(int16_t number) {
-  uint16_t unsigned_number = (uint16_t)abs(number);
-  uint8_t idx = 0;
-  SsiValue value = {0};
+static SsiValue SsipParseNumber(FixedPoint16 number) {
+  uint16_t unsigned_number = (uint16_t)abs(number.whole);
+  uint8_t idx = 1;
+  SsiValue value = {{number.fractional ? '5' : '0', 0, 0, 0}};
 
   if (unsigned_number == 0) {
     value.str[idx] = '0';
@@ -72,11 +97,10 @@ static SsiValue SsipParseNumber(int16_t number) {
       value.str[idx] = (char)('0' + unsigned_number % 10);
       unsigned_number /= 10;
     }
-    if (number < 0) {
+    if (number.whole < 0) {
       value.str[idx] = '-';
     }
   }
-
   return value;
 }
 
@@ -180,8 +204,9 @@ static uint8_t SsipGetSegmentMask(char value) {
 }
 
 static void SsipDrawSegment(uint8_t segment_mask) {
-  (void)segment_mask;
-  // TODO
+  while (!READ_BIT(SPI1->SR, SPI_SR_TXE))
+    ;
+  SPI1->DR = segment_mask;
 }
 
 static void SsipActivateSegment(uint8_t idx) {
@@ -191,21 +216,13 @@ static void SsipActivateSegment(uint8_t idx) {
   } else if (idx == 2) {
   } else if (idx == 3) {
   } else {
+    // Fixed-point dot
   }
-}
-
-void TIM6_DAC_IRQHandler(void) {
-  CLEAR_BIT(TIM6->SR, TIM_SR_UIF);
-
-  const uint8_t idx = g_ssi_state.idx;
-  const uint8_t segment_mask = SsipGetSegmentMask(g_ssi_state.value.str[idx]);
-  SsipDrawSegment(segment_mask);
-  SsipActivateSegment(idx);
-  g_ssi_state.idx = idx + 1 == SSI_PANEL_SIZE ? 0 : idx + 1;
 }
 
 TpStatus SsiInitialize(void) {
   SsipPrepareGpio();
+  SsipSetupSpi();
   SsipSetupTimer();
   return TpSuccess;
 }
@@ -226,9 +243,28 @@ TpStatus SsiSetValue(SsiValue value) {
   return SsipSetValue(value, false);
 }
 
-TpStatus SsiSetNumber(int16_t number) {
-  if (number < SSI_NUMBER_MIN || number > SSI_NUMBER_MAX) {
+TpStatus SsiSetNumber(FixedPoint16 number) {
+  if (FpLess(number, g_ssi_state.min_number) ||
+      FpGreater(number, g_ssi_state.max_number)) {
     return TpInvalidParameter;
   }
   return SsipSetValue(SsipParseNumber(number), true);
+}
+
+void TIM6_DAC_IRQHandler(void) {
+  CLEAR_BIT(TIM6->SR, TIM_SR_UIF);
+
+  const uint8_t idx = g_ssi_state.idx;
+  uint8_t segment_mask = SsipGetSegmentMask(g_ssi_state.value.str[idx]);
+  if (g_ssi_state.is_number && idx == SSI_FP_INDEX) {
+    SET_BIT(segment_mask, SSI_FP_DOT);
+  }
+  SsipDrawSegment(segment_mask);
+}
+
+void SPI1_IRQHandler(void) {
+
+  const uint8_t idx = g_ssi_state.idx;
+  SsipActivateSegment(idx);
+  g_ssi_state.idx = idx + 1 == SSI_PANEL_SIZE ? 0 : idx + 1;
 }
