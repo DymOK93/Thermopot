@@ -40,33 +40,31 @@ static void HmpSetupTimer() {
    * 2. One-pulse mode
    * 3. PWM mode 2 (_|_) without fast output
    * 4. OC1 configured as output with active high, OC2 configured as input
-   * sensitive to falling edge
+   * sensitive to raising edge
    * 5. Trigger Mode - the counter starts at a rising edge on the TI2
-   * 6. Main output enable
    */
   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM15EN);
-  TIM15->PSC = (uint16_t)(SystemCoreClock / 1000000 - 1);               // (1)
-  SET_BIT(TIM15->CR1, TIM_CR1_OPM);                                     // (2)
-  SET_BIT(TIM15->CCMR1, TIM_CCMR1_OC1M);                                // (3)
-  SET_BIT(TIM15->CCER, TIM_CCER_CC2P | TIM_CCER_CC2E | TIM_CCER_CC1E);  // (4)
+  TIM15->PSC = (uint16_t)(SystemCoreClock / 1000000 - 1);    // (1)
+  SET_BIT(TIM15->CR1, TIM_CR1_OPM);                          // (2)
+  SET_BIT(TIM15->CCMR1, TIM_CCMR1_CC2S_0 | TIM_CCMR1_OC1M);  // (3)
+  SET_BIT(TIM15->CCER, TIM_CCER_CC1E);                       // (4)
   SET_BIT(TIM15->SMCR, TIM_SMCR_SMS_1 | TIM_SMCR_SMS_2 | TIM_SMCR_TS_2 |
                            TIM_SMCR_TS_1);  // (5)
-  SET_BIT(TIM15->BDTR, TIM_BDTR_MOE);       // (6)
 }
 
 static void HmpStart(void) {
   /**
    * 1. Pulse delay is (TIM15_CCR1 - TIM15_CNT)
    * 2. Pulse width is (TIM15_ARR - TIM15_CCR1)
+   * 3. Main output enable
    */
   TIM15->CCR1 = g_hm_state.pulse_delay;                          // (1)
   TIM15->ARR = g_hm_state.pulse_delay + g_hm_state.pulse_width;  // (2)
-  SET_BIT(TIM15->CR1, TIM_CR1_CEN);
+  SET_BIT(TIM15->BDTR, TIM_BDTR_MOE);                            // (3)
 }
 
 static void HmpStop(void) {
-  CLEAR_BIT(TIM15->CR1, TIM_CR1_CEN);
-  TIM15->CNT = 0;
+  CLEAR_BIT(TIM15->BDTR, TIM_BDTR_MOE);
 }
 
 static void HmpSetup(uint8_t power_factor) {
