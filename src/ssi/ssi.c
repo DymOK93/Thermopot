@@ -12,15 +12,15 @@
 #define SSI_FP_DOT 0x80
 #define SSI_DIGIT_SHIFT 2
 
-#define SSI_TIMER_INTERRUPT_PRIORITY 2
-#define SSI_SPI_INTERRUPT_PRIORITY 2
+#define SSI_TIMER_INTERRUPT_PRIORITY 1
+#define SSI_SPI_INTERRUPT_PRIORITY 1
 #define SSI_FRAMES_PER_SECOND 60
 
 typedef struct {
   SsiValue value;
-  uint8_t segment_mask[SSI_PANEL_SIZE];
-  bool is_number;
-  uint8_t idx;
+  volatile uint8_t segment_mask[SSI_PANEL_SIZE];
+  volatile bool is_number;
+  volatile uint8_t idx;
   const FixedPoint16 min_number;
   const FixedPoint16 max_number;
 } SsiState;

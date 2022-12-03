@@ -29,9 +29,9 @@ static void HmpPrepareGpio() {
    * 2. Pull-up TIM_CH2 (trigger input)
    */
   SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOBEN);
-  SET_BIT(GPIOB->MODER, GPIO_MODER_MODER14_1 | GPIO_MODER_MODER14_1);  // (1)
+  SET_BIT(GPIOB->MODER, GPIO_MODER_MODER14_1 | GPIO_MODER_MODER15_1);  // (1)
   SET_BIT(GPIOB->AFR[1], 0x11000000);
-  SET_BIT(GPIOB->PUPDR, GPIO_PUPDR_PUPDR3_0);  // (2)
+  SET_BIT(GPIOB->PUPDR, GPIO_PUPDR_PUPDR14_1 | GPIO_PUPDR_PUPDR15_0);  // (2)
 }
 
 static void HmpSetupTimer() {
@@ -40,19 +40,18 @@ static void HmpSetupTimer() {
    * 2. One-pulse mode
    * 3. PWM mode 2 (_|_) without fast output
    * 4. OC1 configured as output with active high, OC2 configured as input
-   * 5. Select input polarity (detect low level only)
-   * 6. Trigger Mode - the counter starts at a rising edge on the TI2
-   * 7. Main output enable
+   * sensitive to falling edge
+   * 5. Trigger Mode - the counter starts at a rising edge on the TI2
+   * 6. Main output enable
    */
   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM15EN);
-  TIM15->PSC = (uint16_t)(SystemCoreClock / 1000000 - 1);  // (1)
-  SET_BIT(TIM15->CR1, TIM_CR1_OPM);                        // (2)
-  SET_BIT(TIM15->CCMR1, TIM_CCMR1_OC1M);                   // (3)
-  SET_BIT(TIM15->CCER, TIM_CCER_CC1E);                     // (4)
-  CLEAR_BIT(TIM15->CCER, TIM_CCER_CC2P);                   // (5)
+  TIM15->PSC = (uint16_t)(SystemCoreClock / 1000000 - 1);               // (1)
+  SET_BIT(TIM15->CR1, TIM_CR1_OPM);                                     // (2)
+  SET_BIT(TIM15->CCMR1, TIM_CCMR1_OC1M);                                // (3)
+  SET_BIT(TIM15->CCER, TIM_CCER_CC2P | TIM_CCER_CC2E | TIM_CCER_CC1E);  // (4)
   SET_BIT(TIM15->SMCR, TIM_SMCR_SMS_1 | TIM_SMCR_SMS_2 | TIM_SMCR_TS_2 |
-                           TIM_SMCR_TS_1);  // (6)
-  SET_BIT(TIM15->BDTR, TIM_BDTR_MOE);       // (7)
+                           TIM_SMCR_TS_1);  // (5)
+  SET_BIT(TIM15->BDTR, TIM_BDTR_MOE);       // (6)
 }
 
 static void HmpStart(void) {

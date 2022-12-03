@@ -4,8 +4,8 @@ target_sources(thermal_manager
         PUBLIC
             "thermal.h"
         PRIVATE
-            "one_wire.h"
-            "one_wire.c"
+            "ds18b20.h"
+            "ds18b20.c"
             "thermal.c")
 
 target_compile_features(thermal_manager PUBLIC c_std_99)
