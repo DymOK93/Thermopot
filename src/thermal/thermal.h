@@ -4,6 +4,7 @@
 
 #include <stdbool.h>
 
+extern const FixedPoint16 TmTemperatureHysteresis;
 extern const FixedPoint16 TmTemperatureMin;
 extern const FixedPoint16 TmTemperatureMax;
 
@@ -22,40 +23,29 @@ TpStatus TmInitialize(void);
 /**
  * @brief Starts or stops the thermal manager
  * @remark Thermal manager stopping automatically turns off the heater
- * @param[in] enable New state
- * @return
- *    - TpDeviceNotConnected if the temperature sensor is not connected
- *    - TpSuccess otherwise
  */
-TpStatus TmSetState(bool enable);
+void TmSetState(bool enable);
 
 /**
  * @brief Requests the current temperature
  * @param[out] temperature Pointer to a variable to store the temperature
+ * @param[in] wait Wait for temperature measurement
  * @return
  *    - TpNotReady if thermal manager is stopped
  *    - TpDeviceNotConnected if the temperature sensor is not connected
  *    - TpInvalidParameter if temperature is NULL
  *    - TpSuccess otherwise
  */
-TpStatus TmQueryTemperature(FixedPoint16* temperature);
+TpStatus TmQueryTemperature(FixedPoint16* temperature, bool wait);
 
 /**
- * @brief Sets power control mode
+ * @brief Sets power control mode and temperature point
  * @warning The thermal manager must be manually stopped first
  * @param[in] mode New mode
+ * @param[in] temperature_point Temperature in fixed-point format
  * @return
  *    - TpAlreadyRunning if thermal manager isn't stopped
- *    - TpInvalidParameter if mode is invalid
- *    - TpSuccess otherwise
- */
-TpStatus TmSetMode(TmMode mode);
-
-/**
- * @brief Sets the temperature point
- * @param[in] value Temperature in fixed-point format (xx.x * 10)
- * @return
  *    - TpInvalidParameter if value > TM_TEMPERATURE_MAX
  *    - TpSuccess otherwise
  */
-TpStatus TmSetTemperaturePoint(FixedPoint16 value);
+TpStatus TmSetup(TmMode mode, FixedPoint16 temperature_point);

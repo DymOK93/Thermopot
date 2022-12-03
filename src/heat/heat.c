@@ -25,13 +25,13 @@ static HmState g_hm_state = {.power_factor = (uint8_t)0,
 
 static void HmpPrepareGpio() {
   /**
-   * 1. Activate PA2, PA3 in the alternative function mode; AF0 (TIM15_CHx)
-   * already selected
-   * 3. Pull-up TIM_CH2 (trigger input)
+   * 1. Activate PB14, PB15 in the alternative function mode
+   * 2. Pull-up TIM_CH2 (trigger input)
    */
-  SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOAEN);
-  SET_BIT(GPIOA->MODER, GPIO_MODER_MODER2_1 | GPIO_MODER_MODER3_1);  // (1)
-  SET_BIT(GPIOA->PUPDR, GPIO_PUPDR_PUPDR3_0);                        // (2)
+  SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOBEN);
+  SET_BIT(GPIOB->MODER, GPIO_MODER_MODER14_1 | GPIO_MODER_MODER14_1);  // (1)
+  SET_BIT(GPIOB->AFR[1], 0x11000000);
+  SET_BIT(GPIOB->PUPDR, GPIO_PUPDR_PUPDR3_0);  // (2)
 }
 
 static void HmpSetupTimer() {

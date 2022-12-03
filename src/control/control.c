@@ -5,6 +5,8 @@
 #include <tools/fixed_point.h>
 #include <tools/utils.h>
 
+#include <stdbool.h>
+
 #include <stm32f0xx.h>
 
 #define CTRL_TEMPERATURE_STEP 1
@@ -13,11 +15,12 @@
 #define CTRL_BUTTON_DEBOUNCE_DELAY 100  // Milliseconds
 
 typedef enum {
-  CtrlStageInitialized = -1,
+  CtrlStageError = -2,
+  CtrlStageWaitForSetup = -1,
   CtrlStageSetupTemperature,
   CtrlStageSetupMode,
   CtrlStageSetupFinished,
-  CtrlStageError,
+  CtrlStageHeat,
   CtrlStageCount
 } CtrlStage;
 
@@ -31,29 +34,34 @@ typedef enum {
 typedef void (*ctrl_button_handler_t)(CtrlButton);
 static void CtrlpSetupTemperature(CtrlButton key);
 static void CtrlpSetupMode(CtrlButton key);
-static void CtrlpDummyKeyHandler(CtrlButton key);
+
+// NOLINTNEXTLINE(clang-diagnostic-padded)
+typedef struct {
+  TmMode mode;
+  FixedPoint16 temperature_point;
+} CtrlSettings;
 
 // NOLINTNEXTLINE(clang-diagnostic-padded)
 typedef struct {
   ctrl_button_handler_t button_handler[CtrlStageCount];
   CtrlStage stage;
-  TmMode mode;
   CtrlButton scheduled_button;
-  FixedPoint16 temperature_point;
+  CtrlSettings settings;
   const FixedPoint16 temperature_step;
   const SsiValue mode_label[TmModeCount];
+  const SsiValue wait_msg;
   const SsiValue error_msg;
 } CtrlState;
 
 static CtrlState g_ctrl_state = {
-    .button_handler = {&CtrlpSetupTemperature, &CtrlpSetupMode,
-                       &CtrlpDummyKeyHandler, &CtrlpDummyKeyHandler},
-    .stage = CtrlStageInitialized,
-    .mode = TmModeRelay,
+    .button_handler = {&CtrlpSetupTemperature, &CtrlpSetupMode},
+    .stage = CtrlStageWaitForSetup,
+    .settings = {.mode = TmModeRelay, .temperature_point = {0}},
     .scheduled_button = CtrlButtonCount,
     .temperature_step = {CTRL_TEMPERATURE_STEP, 0},
     .mode_label = {{"ler"},   // "rel"
                    {"dip"}},  // "pid"
+    .wait_msg = {"pots"},     // "stop"
     .error_msg = {"rre"}      // "err"
 };
 
@@ -104,14 +112,21 @@ static void CtrlpSetupTimer(void) {
 }
 
 static void CtrlpSetupTemperature(CtrlButton button) {
-  if (button == CtrlButtonUp &&
-      FpLess(g_ctrl_state.temperature_point, TmTemperatureMax)) {
-    FpAdd(g_ctrl_state.temperature_point, g_ctrl_state.temperature_step,
-          &g_ctrl_state.temperature_point);
-  } else if (button == CtrlButtonDown &&
-             FpGreater(g_ctrl_state.temperature_point, TmTemperatureMin)) {
-    FpSub(g_ctrl_state.temperature_point, g_ctrl_state.temperature_step,
-          &g_ctrl_state.temperature_point);
+  CtrlSettings* settings = &g_ctrl_state.settings;
+  FixedPoint16 temperature_point;
+
+  if (button == CtrlButtonUp) {
+    FpAdd(settings->temperature_point, g_ctrl_state.temperature_step,
+          &temperature_point);
+    if (FpLessEqual(settings->temperature_point, TmTemperatureMax)) {
+      settings->temperature_point = temperature_point;
+    }
+  } else if (button == CtrlButtonDown) {
+    FpSub(settings->temperature_point, g_ctrl_state.temperature_step,
+          &temperature_point);
+    if (FpGreaterEqual(temperature_point, TmTemperatureMin)) {
+      settings->temperature_point = temperature_point;
+    }
   }
 }
 
@@ -121,28 +136,42 @@ static void CtrlpSetupMode(CtrlButton button) {
    * values
    */
   (void)button;
-  g_ctrl_state.mode =
-      g_ctrl_state.mode == TmModeRelay ? TmModePid : TmModeRelay;
+  TmMode* mode = &g_ctrl_state.settings.mode;
+  if (*mode == TmModeRelay) {
+    *mode = TmModePid;
+  } else {
+    *mode = TmModeRelay;
+  }
 }
 
-static void CtrlpDummyKeyHandler(CtrlButton button) {
-  /*
-   * Do nothing - setup is finished or not started yet
-   */
-  (void)button;
+static bool CtrpSetupInProgress(void) {
+  const CtrlStage stage = g_ctrl_state.stage;
+  return stage > CtrlStageWaitForSetup && stage < CtrlStageHeat;
+}
+
+static CtrlStage CtrlpConfigure(void) {
+  const CtrlSettings* settings = &g_ctrl_state.settings;
+
+  TmSetState(false);
+  if (!TP_SUCCESS(TmSetup(settings->mode, settings->temperature_point))) {
+    return CtrlStageError;
+  }
+  TmSetState(true);
+
+  return CtrlStageHeat;
 }
 
 static void CtrlpNextMode(void) {
   const CtrlStage stage = g_ctrl_state.stage;
   switch (stage) {  // NOLINT(clang-diagnostic-switch-enum)
-    case CtrlStageSetupTemperature:
-    case CtrlStageSetupMode:
-      g_ctrl_state.stage = (CtrlStage)(stage + 1);
-      break;
-    case CtrlStageSetupFinished:
+    case CtrlStageHeat:
       g_ctrl_state.stage = CtrlStageSetupTemperature;
       break;
+    case CtrlStageSetupFinished:
+      g_ctrl_state.stage = CtrlpConfigure();
+      break;
     default:
+      g_ctrl_state.stage = (CtrlStage)(stage + 1);
       break;
   }
 }
@@ -154,35 +183,38 @@ static void CtrlpScheduleButtonHandler(CtrlButton button) {
   }
 }
 
-TpStatus CtrlInitialize(void) {
-  g_ctrl_state.temperature_point = TmTemperatureMin;
+static void CtrlpDisplayCurrentTemperature(void) {
+  FixedPoint16 temperature;
 
+  if (!TP_SUCCESS(TmQueryTemperature(&temperature, true))) {
+    g_ctrl_state.stage = CtrlStageError;
+  } else {
+    SsiSetNumber(temperature);
+    g_ctrl_state.stage = CtrlStageHeat;
+  }
+}
+
+TpStatus CtrlInitialize(void) {
   CtrlpPrepareGpio();
   CtrlpSetupTimer();
   CtrlpSetupKeyInterrupts();
-
   return TpSuccess;
 }
 
 TpStatus CtrlProcessRequests(void) {
-  FixedPoint16 temperature;
   switch (g_ctrl_state.stage) {  // NOLINT(clang-diagnostic-switch-enum)
-    case CtrlStageInitialized:
+    case CtrlStageWaitForSetup:
       SsiSetState(true);
-      g_ctrl_state.stage = CtrlStageSetupFinished;
+      SsiSetValue(g_ctrl_state.wait_msg);
       break;
     case CtrlStageSetupTemperature:
-      SsiSetNumber(g_ctrl_state.temperature_point);
+      SsiSetNumber(g_ctrl_state.settings.temperature_point);
       break;
     case CtrlStageSetupMode:
-      SsiSetValue(g_ctrl_state.mode_label[g_ctrl_state.mode]);
+      SsiSetValue(g_ctrl_state.mode_label[g_ctrl_state.settings.mode]);
       break;
-    case CtrlStageSetupFinished:
-      if (TP_SUCCESS(TmQueryTemperature(&temperature))) {
-        SsiSetNumber(temperature);
-      } else {
-        g_ctrl_state.stage = CtrlStageError;
-      }
+    case CtrlStageHeat:
+      CtrlpDisplayCurrentTemperature();
       break;
     case CtrlStageError:
       SsiSetValue(g_ctrl_state.error_msg);
@@ -215,7 +247,7 @@ void TIM14_IRQHandler(void) {
   const CtrlButton button = g_ctrl_state.scheduled_button;
   if (button == CtrlButtonUser) {
     CtrlpNextMode();
-  } else {
+  } else if (CtrpSetupInProgress()) {
     const ctrl_button_handler_t handler =
         g_ctrl_state.button_handler[g_ctrl_state.stage];
     handler(button);

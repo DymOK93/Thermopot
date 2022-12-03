@@ -5,7 +5,8 @@ typedef enum {
   TpAlreadyRunning = -1,
   TpInvalidParameter = -2,
   TpDeviceNotConnected = -3,
-  TpNotReady = -4
+  TpNotReady = -4,
+  TpNotSupported = -5
 } TpStatus;
 
 #define TP_ERROR(status) ((status) < 0)

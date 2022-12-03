@@ -10,7 +10,9 @@ typedef struct {
 
 #define FpEqual(lhs, rhs) (FpAsNumber(lhs) == FpAsNumber(rhs))
 #define FpGreater(lhs, rhs) (FpAsNumber(lhs) > FpAsNumber(rhs))
+#define FpGreaterEqual(lhs, rhs) (FpAsNumber(lhs) >= FpAsNumber(rhs))
 #define FpLess(lhs, rhs) (FpAsNumber(lhs) < FpAsNumber(rhs))
+#define FpLessEqual(lhs, rhs) (FpAsNumber(lhs) <= FpAsNumber(rhs))
 
 #define FpAdd(lhs, rhs, result)                                \
   ((result)->whole = (FpAsNumber(lhs) + FpAsNumber(rhs)) >> 1, \
@@ -19,3 +21,6 @@ typedef struct {
 #define FpSub(lhs, rhs, result)                                \
   ((result)->whole = (FpAsNumber(lhs) - FpAsNumber(rhs)) >> 1, \
    (result)->fractional = (FpAsNumber(lhs) - FpAsNumber(rhs)) & 1)
+
+#define FpMin(lhs, rhs) (FpLessEqual((lhs), (rhs)) ? (lhs) : (rhs))
+#define FpMax(lhs, rhs) (FpGreaterEqual((lhs), (rhs)) ? (lhs) : (rhs))

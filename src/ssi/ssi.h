@@ -16,5 +16,6 @@ TpStatus SsiInitialize(void);
 void SsiSetState(bool enable);
 
 SsiValue SsiGetValue(void);
+TpStatus SsiClearValue(void);
 TpStatus SsiSetValue(SsiValue value);
 TpStatus SsiSetNumber(FixedPoint16 number);

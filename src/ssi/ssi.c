@@ -347,6 +347,11 @@ SsiValue SsiGetValue(void) {
   return g_ssi_state.value;
 }
 
+TpStatus SsiClearValue(void) {
+  const SsiValue value = {0};
+  return SsiSetValue(value);
+}
+
 TpStatus SsiSetValue(SsiValue value) {
   return SsipSetValue(value, false);
 }
