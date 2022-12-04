@@ -15,7 +15,7 @@
 #define TM_TEMPERATURE_POLLING_PERIOD 200
 #define TM_TIMER_INTERRUPT_PRIORITY 2
 
-#define TM_P_FACTOR 100
+#define TM_P_FACTOR 11
 #define TM_I_DIVIDER 1000
 
 typedef void (*tm_heater_handler_t)(void);
