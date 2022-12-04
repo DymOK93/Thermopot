@@ -86,7 +86,8 @@ static void TmpPidHeaterHandler(void) {
 }
 
 static void TmpRelaySetupHandler(FixedPoint16 temperature_point) {
-  g_tm_state.relay.max_temperature = temperature_point;
+  FpAdd(temperature_point, TmTemperatureHysteresis,
+        &g_tm_state.relay.max_temperature);
   FpSub(temperature_point, TmTemperatureHysteresis,
         &g_tm_state.relay.min_temperature);
 }
