@@ -17,7 +17,7 @@
 #define TM_TIMER_INTERRUPT_PRIORITY 2
 
 #define TM_P_FACTOR 11
-#define TM_I_DIVIDER 1000
+#define TM_I_FACTOR 0.001f
 
 typedef void (*tm_heater_handler_t)(void);
 static void TmpRelayHeaterHandler(void);
@@ -33,38 +33,34 @@ typedef struct {
 } TmRelayInfo;
 
 typedef struct {
-  FixedPoint16 temperature_point;
-  FixedPoint16 accumulated_difference;
+  float temperature_point;
+  float accumulated_difference;
 } TmPidInfo;
 
-// NOLINTNEXTLINE(clang-diagnostic-padded)
 typedef struct {
   volatile TpStatus status;
   TmMode mode;
   tm_heater_handler_t heater_handlers[TmModeCount];
   tm_setup_handler_t setup_handlers[TmModeCount];
   volatile FixedPoint16 current_temperature;
+
+  // NOLINTNEXTLINE(clang-diagnostic-padded)
   union {
     TmRelayInfo relay;
     TmPidInfo pid;
   };
-  const FixedPoint16 p_factor;
-  const FixedPoint16 i_divider;
 } TmState;
 
 const FixedPoint16 TmTemperatureHysteresis =
-    FpInitialize(TM_TEMPERATURE_HYSTERESIS, 0);
-const FixedPoint16 TmTemperatureMin = FpInitialize(TM_TEMPERATURE_MIN, 0);
-const FixedPoint16 TmTemperatureMax = FpInitialize(TM_TEMPERATURE_MAX, 0);
+    Fp16Initialize(TM_TEMPERATURE_HYSTERESIS, 0);
+const FixedPoint16 TmTemperatureMin = Fp16Initialize(TM_TEMPERATURE_MIN, 0);
+const FixedPoint16 TmTemperatureMax = Fp16Initialize(TM_TEMPERATURE_MAX, 0);
 
 static TmState g_tm_state = {
     .status = TpNotReady,
     .mode = TM_MODE_INACTIVE,
     .heater_handlers = {&TmpRelayHeaterHandler, &TmpPidHeaterHandler},
-    .setup_handlers = {&TmpRelaySetupHandler, &TmpPidSetupHandler},
-    .p_factor = FpInitialize(TM_P_FACTOR, 0),
-    .i_divider =
-        FpInitialize(TM_I_DIVIDER * (100 / TM_TEMPERATURE_POLLING_PERIOD), 0)};
+    .setup_handlers = {&TmpRelaySetupHandler, &TmpPidSetupHandler}};
 
 static void TmpSetupTimer() {
   /**
@@ -84,23 +80,24 @@ static void TmpSetupTimer() {
 
 static void TmpRelayHeaterHandler(void) {
   const FixedPoint16 current_temperature = g_tm_state.current_temperature;
-  if (FpGreaterEqual(current_temperature, g_tm_state.relay.max_temperature)) {
+  if (Fp16GreaterEqual(current_temperature, g_tm_state.relay.max_temperature)) {
     HmSetPowerFactor(HM_POWER_FACTOR_MIN);
-  } else if (FpLessEqual(current_temperature,
-                         g_tm_state.relay.min_temperature)) {
+  } else if (Fp16LessEqual(current_temperature,
+                           g_tm_state.relay.min_temperature)) {
     HmSetPowerFactor(HM_POWER_FACTOR_MAX);
   }
 }
 
-static void TmpPidSetPowerFactor(FixedPoint16 difference,
-                                 FixedPoint16 accumulated_difference) {
-  FixedPoint16 result;
+static float TmpConvertToFloat(FixedPoint16 value) {
+  return (float)Fp16ReadAsNumber(value) / (1 << FP16_FRACTIONAL_BITS);
+}
 
-  FpMul(difference, difference, g_tm_state.p_factor);
-  FpDiv(accumulated_difference, accumulated_difference, g_tm_state.i_divider);
-  FpAdd(result, difference, accumulated_difference);
+static void TmpPidSetPowerFactor(float difference,
+                                 float accumulated_difference) {
+  const float result =
+      difference * TM_P_FACTOR + accumulated_difference * TM_I_FACTOR;
+  int32_t power_factor = (int32_t)result;
 
-  int16_t power_factor = FpWhole(result);
   if (power_factor > HM_POWER_FACTOR_MAX) {
     power_factor = HM_POWER_FACTOR_MAX;
   } else if (power_factor < HM_POWER_FACTOR_MIN) {
@@ -111,28 +108,25 @@ static void TmpPidSetPowerFactor(FixedPoint16 difference,
 }
 
 static void TmpPidHeaterHandler(void) {
-  const FixedPoint16 accumulated_difference =
-      g_tm_state.pid.accumulated_difference;
+  const float accumulated_difference = g_tm_state.pid.accumulated_difference;
 
-  FixedPoint16 difference;
-  FpSub(difference, g_tm_state.pid.temperature_point,
-        g_tm_state.current_temperature);
-  FpAdd(g_tm_state.pid.accumulated_difference, accumulated_difference,
-        difference);
+  const float difference = g_tm_state.pid.temperature_point -
+                           TmpConvertToFloat(g_tm_state.current_temperature);
+  g_tm_state.pid.accumulated_difference += difference * TM_TEMPERATURE_POLLING_PERIOD / 1000.0f;
 
   TmpPidSetPowerFactor(difference, accumulated_difference);
 }
 
 static void TmpRelaySetupHandler(FixedPoint16 temperature_point) {
-  FpAdd(g_tm_state.relay.max_temperature, temperature_point,
-        TmTemperatureHysteresis);
-  FpSub(g_tm_state.relay.min_temperature, temperature_point,
-        TmTemperatureHysteresis);
+  Fp16Add(g_tm_state.relay.max_temperature, temperature_point,
+          TmTemperatureHysteresis);
+  Fp16Sub(g_tm_state.relay.min_temperature, temperature_point,
+          TmTemperatureHysteresis);
 }
 
 static void TmpPidSetupHandler(FixedPoint16 temperature_point) {
-  g_tm_state.pid.temperature_point = temperature_point;
-  FpZero(g_tm_state.pid.accumulated_difference);
+  g_tm_state.pid.temperature_point = TmpConvertToFloat(temperature_point);
+  g_tm_state.pid.accumulated_difference = 0;
 }
 
 static void TmpStart(void) {
@@ -149,8 +143,8 @@ static void TmpStop(void) {
 }
 
 bool TmpValidateSettings(TmMode mode, FixedPoint16 value) {
-  return mode < TmModeCount && FpGreaterEqual(value, TmTemperatureMin) &&
-         FpLessEqual(value, TmTemperatureMax);
+  return mode < TmModeCount && Fp16GreaterEqual(value, TmTemperatureMin) &&
+         Fp16LessEqual(value, TmTemperatureMax);
 }
 
 TpStatus TmpSetup(TmMode mode, FixedPoint16 value) {

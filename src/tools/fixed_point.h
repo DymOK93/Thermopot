@@ -1,43 +1,49 @@
 #pragma once
 #include <stdint.h>
 
+#define FP16_FRACTIONAL_BITS 1
+#define FP16_FRACTIONAL_MASK 1
+#define FP16_WHOLE_BITS (16 - FP16_FRACTIONAL_BITS)
+
 typedef struct {
   int16_t value;
 } FixedPoint16;
 
-#define FpPack(whole, fractional) \
-  ((int16_t)((uint16_t)(whole) << 1 | ((fractional)&1)))
+#define Fp16Pack(whole, fractional)                      \
+  ((int16_t)((uint16_t)(whole) << FP16_FRACTIONAL_BITS | \
+             ((fractional)&FP16_FRACTIONAL_MASK)))
 
-#define FpInitialize(whole, fractional) \
-  { FpPack((whole), (fractional)) }
+#define Fp16Initialize(whole, fractional) \
+  { Fp16Pack((whole), (fractional)) }
 
-#define FpReadAsNumber(fp) ((fp).value)
-#define FpWriteAsNumber(fp, number) ((fp).value = (int16_t)(number))
-#define FpZero(fp) FpWriteAsNumber((fp), 0)
+#define Fp16ReadAsNumber(fp) ((fp).value)
+#define Fp16WriteAsNumber(fp, number) ((fp).value = (int16_t)(number))
+#define Fp16Zero(fp) Fp16WriteAsNumber((fp), 0)
 
-#define FpWhole(fp) (FpReadAsNumber(fp) >> 1)
-#define FpFractional(fp) (FpReadAsNumber(fp) & 1)
+#define Fp16Whole(fp) (Fp16ReadAsNumber(fp) >> 1)
+#define Fp16Fractional(fp) (Fp16ReadAsNumber(fp) & 1)
 
-#define FpPositive(fp) ((fp).whole > 0)
-#define FpNegative(fp) ((fp).whole < 0)
+#define Fp16Positive(fp) ((fp).whole > 0)
+#define Fp16Negative(fp) ((fp).whole < 0)
 
-#define FpEqual(lhs, rhs) (FpReadAsNumber(lhs) == FpReadAsNumber(rhs))
-#define FpGreater(lhs, rhs) (FpReadAsNumber(lhs) > FpReadAsNumber(rhs))
-#define FpGreaterEqual(lhs, rhs) (FpReadAsNumber(lhs) >= FpReadAsNumber(rhs))
-#define FpLess(lhs, rhs) (FpReadAsNumber(lhs) < FpReadAsNumber(rhs))
-#define FpLessEqual(lhs, rhs) (FpReadAsNumber(lhs) <= FpReadAsNumber(rhs))
+#define Fp16Equal(lhs, rhs) (Fp16ReadAsNumber(lhs) == Fp16ReadAsNumber(rhs))
+#define Fp16Greater(lhs, rhs) (Fp16ReadAsNumber(lhs) > Fp16ReadAsNumber(rhs))
+#define Fp16GreaterEqual(lhs, rhs) \
+  (Fp16ReadAsNumber(lhs) >= Fp16ReadAsNumber(rhs))
+#define Fp16Less(lhs, rhs) (Fp16ReadAsNumber(lhs) < Fp16ReadAsNumber(rhs))
+#define Fp16LessEqual(lhs, rhs) (Fp16ReadAsNumber(lhs) <= Fp16ReadAsNumber(rhs))
 
-#define FpAdd(fp, lhs, rhs) \
-  FpWriteAsNumber((fp), FpReadAsNumber(lhs) + FpReadAsNumber(rhs))
+#define Fp16Add(fp, lhs, rhs) \
+  Fp16WriteAsNumber((fp), Fp16ReadAsNumber(lhs) + Fp16ReadAsNumber(rhs))
 
-#define FpSub(fp, lhs, rhs) \
-  FpWriteAsNumber((fp), FpReadAsNumber(lhs) - FpReadAsNumber(rhs))
+#define Fp16Sub(fp, lhs, rhs) \
+  Fp16WriteAsNumber((fp), Fp16ReadAsNumber(lhs) - Fp16ReadAsNumber(rhs))
 
-#define FpMul(fp, lhs, rhs) \
-  FpWriteAsNumber((fp), FpReadAsNumber(lhs) * FpReadAsNumber(rhs))
+#define Fp16Mul(fp, lhs, rhs) \
+  Fp16WriteAsNumber((fp), Fp16ReadAsNumber(lhs) * Fp16ReadAsNumber(rhs))
 
-#define FpDiv(fp, lhs, rhs) \
-  FpWriteAsNumber((fp), FpReadAsNumber(lhs) / FpReadAsNumber(rhs))
+#define Fp16Div(fp, lhs, rhs) \
+  Fp16WriteAsNumber((fp), Fp16ReadAsNumber(lhs) / Fp16ReadAsNumber(rhs))
 
-#define FpMin(lhs, rhs) (FpLessEqual((lhs), (rhs)) ? (lhs) : (rhs))
-#define FpMax(lhs, rhs) (FpGreaterEqual((lhs), (rhs)) ? (lhs) : (rhs))
+#define Fp16Min(lhs, rhs) (Fp16LessEqual((lhs), (rhs)) ? (lhs) : (rhs))
+#define Fp16Max(lhs, rhs) (Fp16GreaterEqual((lhs), (rhs)) ? (lhs) : (rhs))

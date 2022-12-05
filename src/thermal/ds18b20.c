@@ -173,7 +173,7 @@ TpStatus DspReadTemperature(FixedPoint16* temperature) {
     return TpCrcError;
   }
 
-  FpWriteAsNumber(*temperature, scratchpad.temperature >> DS_TEMPERATURE_SHIFT);
+  Fp16WriteAsNumber(*temperature, scratchpad.temperature >> DS_TEMPERATURE_SHIFT);
 
   return TpSuccess;
 }
