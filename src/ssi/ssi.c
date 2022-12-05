@@ -29,8 +29,8 @@ static SsiState g_ssi_state = {.value = {{0}},
                                .segment_mask = {0},
                                .is_number = false,
                                .idx = 0,
-                               .min_number = {SSI_NUMBER_MIN, 0},
-                               .max_number = {SSI_NUMBER_MAX, 0}};
+                               .min_number = FpInitialize(SSI_NUMBER_MIN, 0),
+                               .max_number = FpInitialize(SSI_NUMBER_MAX, 0)};
 
 static void SsipPrepareGpio(void) {
   /**
@@ -104,9 +104,10 @@ static bool SsipValidateValue(SsiValue value) {
 }
 
 static SsiValue SsipParseNumber(FixedPoint16 number) {
-  uint16_t unsigned_number = (uint16_t)abs(number.whole);
+  const int16_t whole_part = FpWhole(number);
+  uint16_t unsigned_number = (uint16_t)abs(whole_part);
   uint8_t idx = 1;
-  SsiValue value = {{number.fractional ? '5' : '0', 0, 0, 0}};
+  SsiValue value = {{FpFractional(number) ? '5' : '0', 0, 0, 0}};
 
   if (unsigned_number == 0) {
     value.str[idx] = '0';
@@ -115,7 +116,7 @@ static SsiValue SsipParseNumber(FixedPoint16 number) {
       value.str[idx] = (char)('0' + unsigned_number % 10);
       unsigned_number /= 10;
     }
-    if (number.whole < 0) {
+    if (whole_part < 0) {
       value.str[idx] = '-';
     }
   }

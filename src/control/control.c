@@ -61,7 +61,7 @@ static CtrlState g_ctrl_state = {
     .stage = CtrlStageInitialized,
     .settings = {.mode = TmModeRelay, .temperature_point = {0}},
     .scheduled_button = CtrlButtonCount,
-    .temperature_step = {CTRL_TEMPERATURE_STEP, 0},
+    .temperature_step = FpInitialize(CTRL_TEMPERATURE_STEP, 0),
     .mode_label = {{"ler"},   // "rel"
                    {"dip"}},  // "pid"
     .init_msg = {"tini"},     // "init"
@@ -134,14 +134,14 @@ static void CtrlpSetupTemperature(CtrlButton button) {
   FixedPoint16 temperature_point;
 
   if (button == CtrlButtonUp) {
-    FpAdd(settings->temperature_point, g_ctrl_state.temperature_step,
-          &temperature_point);
+    FpAdd(temperature_point, settings->temperature_point,
+          g_ctrl_state.temperature_step);
     if (FpLessEqual(settings->temperature_point, TmTemperatureMax)) {
       settings->temperature_point = temperature_point;
     }
   } else if (button == CtrlButtonDown) {
-    FpSub(settings->temperature_point, g_ctrl_state.temperature_step,
-          &temperature_point);
+    FpSub(temperature_point, settings->temperature_point,
+          g_ctrl_state.temperature_step);
     if (FpGreaterEqual(temperature_point, TmTemperatureMin)) {
       settings->temperature_point = temperature_point;
     }

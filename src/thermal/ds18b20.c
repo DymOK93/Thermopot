@@ -5,15 +5,18 @@
 
 #include <limits.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdlib.h>
 
 #include <stm32f0xx.h>
+
+#define PACKED __attribute__((packed))
 
 #define DS_OW_TRANSFER_GRANULARITY 8
 #define DS_OW_RESET_BAUD 9600
 #define DS_OW_TRANSFER_BAUD 115200
 #define DS_OW_RESET_TIMEOUT_SHIFT 12
-#define DS_OW_TRANSFER_TIMEOUT_SHIFT 14
+#define DS_OW_TRANSFER_TIMEOUT_SHIFT 10
 #define DS_OW_ZERO 0x00
 #define DS_OW_RESET 0xF0
 #define DS_OW_BIT 0xFF
@@ -22,17 +25,15 @@
 #define DS_TL_MIN (-55)
 #define DS_ACCURACY_MASK 0x20  // 10-bit accuracy
 
+#define DS_SKIP_ROM 0xCC
 #define DS_CONVERT_TEMPERATURE 0x44
 #define DS_WRITE_SCRATCHPAD 0x4E
 #define DS_READ_SCRATCHPAD 0xBE
 
-#define DS_TEMPERATURE_LSB_MASK 1
-#define DS_TEMPERATURE_LSB_SHIFT 1
-#define DS_TEMPERATURE_MSB_SHIFT (CHAR_BIT - DS_TEMPERATURE_LSB_SHIFT)
+#define DS_TEMPERATURE_SHIFT 3
 
-typedef struct {
-  uint8_t temperature_lsb;
-  uint8_t temperature_msb;
+typedef struct PACKED {
+  int16_t temperature;
   uint8_t th;
   uint8_t tl;
   uint8_t configuration;
@@ -77,24 +78,24 @@ static void DspUpdateTransceiverBaud(uint32_t baud) {
   SET_BIT(USART2->CR1, USART_CR1_UE);
 }
 
-static void DspWriteRawSequence(uint8_t value) {
-  *(volatile uint8_t*)&USART2->TDR = value;
+static uint8_t DspPumpRawSequence(uint8_t value, uint32_t timeout) {
   while (!READ_BIT(USART2->ISR, USART_ISR_TXE))
     ;
-}
+  *(volatile uint8_t*)&USART2->TDR = value;
 
-static uint8_t DspReadRawSequence(uint32_t timeout) {
-  while (!READ_BIT(USART2->ISR, USART_ISR_RXNE | USART_ISR_FE) && timeout--)
+  while (timeout-- && !READ_BIT(USART2->ISR, USART_ISR_RXNE | USART_ISR_FE))
     ;
   return *(const volatile uint8_t*)&USART2->RDR;
 }
 
 static void DspSend(const unsigned char* buffer, uint32_t bytes_count) {
+  const uint32_t timeout = SystemCoreClock >> DS_OW_TRANSFER_TIMEOUT_SHIFT;
+
   while (bytes_count--) {
     uint8_t value = *buffer++;
     uint8_t idx = 0;
     for (; idx < DS_OW_TRANSFER_GRANULARITY; ++idx) {
-      DspWriteRawSequence(value & 1 ? DS_OW_BIT : DS_OW_ZERO);
+      DspPumpRawSequence(value & 1 ? DS_OW_BIT : DS_OW_ZERO, timeout);
       value >>= 1;
     }
   }
@@ -107,12 +108,11 @@ static void DspRecv(unsigned char* buffer, uint32_t bytes_count) {
     uint8_t value = 0;
     uint8_t idx = 0;
     for (; idx < DS_OW_TRANSFER_GRANULARITY; ++idx) {
-      DspWriteRawSequence(DS_OW_BIT);
-      const uint8_t echo = DspReadRawSequence(timeout);
+      value >>= 1;
+      const uint8_t echo = DspPumpRawSequence(DS_OW_BIT, timeout);
       if (echo == DS_OW_BIT) {
-        value |= 1;
+        value |= 0x80;
       }
-      value <<= 1;
     }
     *buffer++ = value;
   }
@@ -121,9 +121,8 @@ static void DspRecv(unsigned char* buffer, uint32_t bytes_count) {
 static TpStatus DspReset() {
   DspUpdateTransceiverBaud(DS_OW_RESET_BAUD);
 
-  DspWriteRawSequence(DS_OW_RESET);
-  const uint8_t echo =
-      DspReadRawSequence(SystemCoreClock >> DS_OW_RESET_TIMEOUT_SHIFT);
+  const uint8_t echo = DspPumpRawSequence(
+      DS_OW_RESET, SystemCoreClock >> DS_OW_RESET_TIMEOUT_SHIFT);
 
   DspUpdateTransceiverBaud(DS_OW_TRANSFER_BAUD);
 
@@ -135,7 +134,8 @@ static TpStatus DspSendCommandWithPayload(uint8_t command,
                                           uint32_t bytes_count) {
   const TpStatus status = DspReset();
   if (TP_SUCCESS(status)) {
-    DspSend(&command, 1);
+    const unsigned char broadcast[] = {DS_SKIP_ROM, command};
+    DspSend(broadcast, sizeof broadcast);
     DspSend(payload, bytes_count);
   }
   return status;
@@ -173,11 +173,7 @@ TpStatus DspReadTemperature(FixedPoint16* temperature) {
     return TpCrcError;
   }
 
-  temperature->whole =
-      (int16_t)(scratchpad.temperature_msb << DS_TEMPERATURE_MSB_SHIFT |
-                scratchpad.temperature_lsb >> DS_TEMPERATURE_LSB_SHIFT);
-  temperature->fractional =
-      (uint16_t)(scratchpad.temperature_lsb & DS_TEMPERATURE_LSB_MASK);
+  FpWriteAsNumber(*temperature, scratchpad.temperature >> DS_TEMPERATURE_SHIFT);
 
   return TpSuccess;
 }
@@ -188,17 +184,17 @@ TpStatus DsInitialize(void) {
   return TpSuccess;
 }
 
-TpStatus DsStartMeasurement(void) {
-  TpStatus status = DspSendCommandWithPayload(
-      DS_WRITE_SCRATCHPAD, (const unsigned char*)&g_ds_config,
-      sizeof(DsConfig));
-  if (TP_SUCCESS(status)) {
-    status = DspSendCommand(DS_CONVERT_TEMPERATURE);
-  }
-  return status;
+TpStatus DsPrepare(void) {
+  return DspSendCommandWithPayload(DS_WRITE_SCRATCHPAD,
+                                   (const unsigned char*)&g_ds_config,
+                                   sizeof(DsConfig));
 }
 
-TpStatus DsQueryTemperature(FixedPoint16* temperature) {
+TpStatus DsConvertTemperature(void) {
+  return DspSendCommand(DS_CONVERT_TEMPERATURE);
+}
+
+TpStatus DsReadTemperature(FixedPoint16* temperature) {
   if (!temperature) {
     return TpInvalidParameter;
   }

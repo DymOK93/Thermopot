@@ -2,6 +2,7 @@
 #include "ds18b20.h"
 
 #include <heat/heat.h>
+#include <tools/break_on.h>
 #include <tools/utils.h>
 
 #include <stm32f0xx.h>
@@ -51,17 +52,19 @@ typedef struct {
   const FixedPoint16 i_divider;
 } TmState;
 
-const FixedPoint16 TmTemperatureHysteresis = {TM_TEMPERATURE_HYSTERESIS, 0};
-const FixedPoint16 TmTemperatureMin = {TM_TEMPERATURE_MIN, 0};
-const FixedPoint16 TmTemperatureMax = {TM_TEMPERATURE_MAX, 0};
+const FixedPoint16 TmTemperatureHysteresis =
+    FpInitialize(TM_TEMPERATURE_HYSTERESIS, 0);
+const FixedPoint16 TmTemperatureMin = FpInitialize(TM_TEMPERATURE_MIN, 0);
+const FixedPoint16 TmTemperatureMax = FpInitialize(TM_TEMPERATURE_MAX, 0);
 
 static TmState g_tm_state = {
     .status = TpNotReady,
     .mode = TM_MODE_INACTIVE,
     .heater_handlers = {&TmpRelayHeaterHandler, &TmpPidHeaterHandler},
     .setup_handlers = {&TmpRelaySetupHandler, &TmpPidSetupHandler},
-    .p_factor = {TM_P_FACTOR, 0},
-    .i_divider = {TM_I_DIVIDER * (100 / TM_TEMPERATURE_POLLING_PERIOD), 0}};
+    .p_factor = FpInitialize(TM_P_FACTOR, 0),
+    .i_divider =
+        FpInitialize(TM_I_DIVIDER * (100 / TM_TEMPERATURE_POLLING_PERIOD), 0)};
 
 static void TmpSetupTimer() {
   /**
@@ -93,11 +96,11 @@ static void TmpPidSetPowerFactor(FixedPoint16 difference,
                                  FixedPoint16 accumulated_difference) {
   FixedPoint16 result;
 
-  FpMul(difference, g_tm_state.p_factor, &difference);
-  FpDiv(accumulated_difference, g_tm_state.i_divider, &accumulated_difference);
-  FpAdd(difference, accumulated_difference, &result);
+  FpMul(difference, difference, g_tm_state.p_factor);
+  FpDiv(accumulated_difference, accumulated_difference, g_tm_state.i_divider);
+  FpAdd(result, difference, accumulated_difference);
 
-  int16_t power_factor = result.whole;
+  int16_t power_factor = FpWhole(result);
   if (power_factor > HM_POWER_FACTOR_MAX) {
     power_factor = HM_POWER_FACTOR_MAX;
   } else if (power_factor < HM_POWER_FACTOR_MIN) {
@@ -112,24 +115,24 @@ static void TmpPidHeaterHandler(void) {
       g_tm_state.pid.accumulated_difference;
 
   FixedPoint16 difference;
-  FpSub(g_tm_state.current_temperature, g_tm_state.pid.temperature_point,
-        &difference);
-  FpAdd(accumulated_difference, difference,
-        &g_tm_state.pid.accumulated_difference);
+  FpSub(difference, g_tm_state.pid.temperature_point,
+        g_tm_state.current_temperature);
+  FpAdd(g_tm_state.pid.accumulated_difference, accumulated_difference,
+        difference);
 
   TmpPidSetPowerFactor(difference, accumulated_difference);
 }
 
 static void TmpRelaySetupHandler(FixedPoint16 temperature_point) {
-  FpAdd(temperature_point, TmTemperatureHysteresis,
-        &g_tm_state.relay.max_temperature);
-  FpSub(temperature_point, TmTemperatureHysteresis,
-        &g_tm_state.relay.min_temperature);
+  FpAdd(g_tm_state.relay.max_temperature, temperature_point,
+        TmTemperatureHysteresis);
+  FpSub(g_tm_state.relay.min_temperature, temperature_point,
+        TmTemperatureHysteresis);
 }
 
 static void TmpPidSetupHandler(FixedPoint16 temperature_point) {
   g_tm_state.pid.temperature_point = temperature_point;
-  FpZero(&g_tm_state.pid.accumulated_difference);
+  FpZero(g_tm_state.pid.accumulated_difference);
 }
 
 static void TmpStart(void) {
@@ -170,11 +173,27 @@ static TpStatus TmpGetMeasurementStatus(bool wait) {
   return status;
 }
 
-static void TmpStartMeasurement(TpStatus wait_status) {
-  if (!TP_SUCCESS(DsStartMeasurement())) {
+static void TmpStartMeasurement(void) {
+  do {
+    TpStatus status = DsPrepare();
+    BREAK_ON_ERROR(status);
+
+    status = DsConvertTemperature();
+    BREAK_ON_ERROR(status);
+
+    g_tm_state.status = TpPending;
+    return;
+
+  } while (false);
+
+  TmpRaiseDeviceError();
+}
+
+static void TmpContinueMeasurement(void) {
+  if (!TP_SUCCESS(DsConvertTemperature())) {
     TmpRaiseDeviceError();
   } else {
-    g_tm_state.status = wait_status;
+    g_tm_state.status = TpSuccess;
   }
 }
 
@@ -219,11 +238,11 @@ void TIM16_IRQHandler(void) {
   CLEAR_BIT(TIM16->SR, TIM_SR_UIF);
 
   if (!TP_SUCCESS(g_tm_state.status)) {
-    TmpStartMeasurement(TpPending);
+    TmpStartMeasurement();
 
   } else {
     FixedPoint16 temperature;
-    const TpStatus status = DsQueryTemperature(&temperature);
+    const TpStatus status = DsReadTemperature(&temperature);
     if (!TP_SUCCESS(status)) {
       TmpRaiseDeviceError();
     } else {
@@ -233,7 +252,7 @@ void TIM16_IRQHandler(void) {
           g_tm_state.heater_handlers[g_tm_state.mode];
       heater_handler();
 
-      TmpStartMeasurement(TpSuccess);
+      TmpContinueMeasurement();
     }
   }
 }
