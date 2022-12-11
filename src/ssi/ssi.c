@@ -68,12 +68,14 @@ static void SsipSetupTimer(void) {
   /*
    * 1. Tick period is 1ms
    * 2. Enable update interrupt
+   * 3. Only counter overflow/underflow generates an update interrupt
    */
   SET_BIT(RCC->APB1ENR, RCC_APB1ENR_TIM6EN);
   TIM6->PSC = (uint16_t)(SystemCoreClock / 1000 - 1);  // (1)
   TIM6->ARR = (uint16_t)(1000 / (SSI_FRAMES_PER_SECOND * SSI_PANEL_SIZE));
 
   SET_BIT(TIM6->DIER, TIM_DIER_UIE);  // (2)
+  SET_BIT(TIM6->CR1, TIM_CR1_URS);    // (3)
 
   NVIC_SetPriority(TIM6_DAC_IRQn, SSI_TIMER_INTERRUPT_PRIORITY);
   NVIC_EnableIRQ(TIM6_DAC_IRQn);
@@ -87,7 +89,7 @@ static void SsipStart() {
 static void SsipStop(void) {
   CLEAR_BIT(SPI1->CR1, SPI_CR1_SPE);
   CLEAR_BIT(TIM6->CR1, TIM_CR1_CEN);
-  TIM6->CNT = 0;
+  SET_BIT(TIM6->EGR, TIM_EGR_UG);
 }
 
 static bool SsipValidateValue(SsiValue value) {

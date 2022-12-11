@@ -7,17 +7,23 @@
 
 #include <stm32f0xx.h>
 
-#define TM_TEMPERATURE_HYSTERESIS 5
+#define TM_TEMPERATURE_HYSTERESIS_UP (-1)
+#define TM_TEMPERATURE_HYSTERESIS_DOWN 2
 #define TM_TEMPERATURE_MIN 0    // 5.0
 #define TM_TEMPERATURE_MAX 100  // 100.0
 
 #define TM_MODE_INACTIVE TmModeCount
 
-#define TM_TEMPERATURE_POLLING_PERIOD 200
+#define TM_TEMPERATURE_POLLING_PERIOD 100
 #define TM_TIMER_INTERRUPT_PRIORITY 2
 
-#define TM_P_FACTOR 11
-#define TM_I_FACTOR 0.001f
+#define TM_PID_SAMPLE_TIME (TM_TEMPERATURE_POLLING_PERIOD / 1000.0f)
+#define TM_PID_P_FACTOR 6
+#define TM_PID_I_FACTOR 0.005f
+#define TM_PID_D_FACTOR 0
+
+#define TM_DEBUG_INTERFACE_INTERRUPT_PRIORITY 3
+#define TM_DBG_TRANSFER_BAUD 115200
 
 typedef void (*tm_heater_handler_t)(void);
 static void TmpRelayHeaterHandler(void);
@@ -33,26 +39,48 @@ typedef struct {
 } TmRelayInfo;
 
 typedef struct {
+  FixedPoint16 temperature_hysteresis_up;
+  FixedPoint16 temperature_hysteresis_down;
+} TmRelaySettings;
+
+typedef struct {
   float temperature_point;
   float accumulated_difference;
+  float difference_delta;
 } TmPidInfo;
 
 typedef struct {
+  float p_factor;
+  float i_factor;
+  float d_factor;
+} TmPidSettings;
+
+typedef struct {
+  TmMode type;
+  union {
+    TmRelaySettings relay_settings;
+    TmPidSettings pid_settings;
+  };
+} TmSettingsPacket;
+
+typedef struct {
   volatile TpStatus status;
-  TmMode mode;
-  tm_heater_handler_t heater_handlers[TmModeCount];
-  tm_setup_handler_t setup_handlers[TmModeCount];
+  volatile TmMode mode;
+  const tm_heater_handler_t heater_handlers[TmModeCount];
+  const tm_setup_handler_t setup_handlers[TmModeCount];
   volatile FixedPoint16 current_temperature;
 
   // NOLINTNEXTLINE(clang-diagnostic-padded)
   union {
-    TmRelayInfo relay;
-    TmPidInfo pid;
+    TmRelayInfo relay_info;
+    TmPidInfo pid_info;
   };
+
+  volatile TmRelaySettings relay_settings;
+  volatile TmPidSettings pid_settings;
+  TmSettingsPacket settings_packet;
 } TmState;
 
-const FixedPoint16 TmTemperatureHysteresis =
-    Fp16Initialize(TM_TEMPERATURE_HYSTERESIS, 0);
 const FixedPoint16 TmTemperatureMin = Fp16Initialize(TM_TEMPERATURE_MIN, 0);
 const FixedPoint16 TmTemperatureMax = Fp16Initialize(TM_TEMPERATURE_MAX, 0);
 
@@ -60,30 +88,71 @@ static TmState g_tm_state = {
     .status = TpNotReady,
     .mode = TM_MODE_INACTIVE,
     .heater_handlers = {&TmpRelayHeaterHandler, &TmpPidHeaterHandler},
-    .setup_handlers = {&TmpRelaySetupHandler, &TmpPidSetupHandler}};
+    .setup_handlers = {&TmpRelaySetupHandler, &TmpPidSetupHandler},
+    .relay_settings = {.temperature_hysteresis_up =
+                           Fp16Initialize(TM_TEMPERATURE_HYSTERESIS_UP, 0),
+                       .temperature_hysteresis_down =
+                           Fp16Initialize(TM_TEMPERATURE_HYSTERESIS_DOWN, 0)},
+    .pid_settings = {.p_factor = TM_PID_P_FACTOR,
+                     .i_factor = TM_PID_I_FACTOR,
+                     .d_factor = TM_PID_D_FACTOR}};
+
+static void TmpPrepareGpio(void) {
+  /**
+   * 1. Activate PA10 in the alternative function mode
+   * 2. Setup weak pull-up on PA10
+   * 3. Select AF1 (USARTx_RX) for PA10 (3)
+   */
+  SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOAEN);
+  SET_BIT(GPIOA->MODER, GPIO_MODER_MODER9_1 | GPIO_MODER_MODER10_1);  // (1)
+  SET_BIT(GPIOA->PUPDR, GPIO_PUPDR_PUPDR9_0 | GPIO_PUPDR_PUPDR10_0);  // (2)
+  SET_BIT(GPIOA->AFR[1], 0x00000110);                                 // (3)
+}
 
 static void TmpSetupTimer() {
   /**
    * 1. Tick period is 1ms
-   * 2. Enable timer interrupts
-   * 3. Priority must be higher than user input interrupt handlers (i.e. less
-   * absolute value)
+   * 2. Enable update interrupt
+   * 3. Only counter overflow/underflow generates an update interrupt
+   * 4. Timer interrupt priority must be higher than user input interrupt
+   * handlers (i.e. less absolute value)
    */
   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM16EN);
   TIM16->PSC = (uint16_t)(SystemCoreClock / 1000 - 1);  // (1)
   TIM16->ARR = TM_TEMPERATURE_POLLING_PERIOD;
 
   SET_BIT(TIM16->DIER, TIM_DIER_UIE);  // (2)
+  SET_BIT(TIM16->CR1, TIM_CR1_URS);    // (3)
+
   NVIC_EnableIRQ(TIM16_IRQn);
-  NVIC_SetPriority(TIM16_IRQn, TM_TIMER_INTERRUPT_PRIORITY);  // (3)
+  NVIC_SetPriority(TIM16_IRQn, TM_TIMER_INTERRUPT_PRIORITY);  // (4)
+}
+
+static void TmpSetupDebugInterface(void) {
+  SET_BIT(RCC->AHBENR, RCC_AHBENR_DMAEN);
+  SET_BIT(DMA1_Channel3->CCR,
+          DMA_CCR_MINC | DMA_CCR_CIRC | DMA_CCR_TEIE | DMA_CCR_TCIE);
+  DMA1_Channel3->CPAR = (uint32_t)&USART1->RDR;
+  DMA1_Channel3->CNDTR = sizeof(TmSettingsPacket);
+  DMA1_Channel3->CMAR = (uint32_t)&g_tm_state.settings_packet;
+  SET_BIT(DMA1_Channel3->CCR, DMA_CCR_EN);
+
+  NVIC_SetPriority(DMA1_Channel2_3_IRQn, TM_DEBUG_INTERFACE_INTERRUPT_PRIORITY);
+  NVIC_EnableIRQ(DMA1_Channel2_3_IRQn);
+
+  SET_BIT(RCC->APB2ENR, RCC_APB2ENR_USART1EN);
+  USART1->BRR = SystemCoreClock / TM_DBG_TRANSFER_BAUD;
+  SET_BIT(USART1->CR3, USART_CR3_DMAR | USART_CR3_DMAT);
+  SET_BIT(USART1->CR1, USART_CR1_RE | USART_CR1_TE | USART_CR1_UE);
 }
 
 static void TmpRelayHeaterHandler(void) {
   const FixedPoint16 current_temperature = g_tm_state.current_temperature;
-  if (Fp16GreaterEqual(current_temperature, g_tm_state.relay.max_temperature)) {
+  if (Fp16GreaterEqual(current_temperature,
+                       g_tm_state.relay_info.max_temperature)) {
     HmSetPowerFactor(HM_POWER_FACTOR_MIN);
   } else if (Fp16LessEqual(current_temperature,
-                           g_tm_state.relay.min_temperature)) {
+                           g_tm_state.relay_info.min_temperature)) {
     HmSetPowerFactor(HM_POWER_FACTOR_MAX);
   }
 }
@@ -93,9 +162,13 @@ static float TmpConvertToFloat(FixedPoint16 value) {
 }
 
 static void TmpPidSetPowerFactor(float difference,
-                                 float accumulated_difference) {
-  const float result =
-      difference * TM_P_FACTOR + accumulated_difference * TM_I_FACTOR;
+                                 float accumulated_difference,
+                                 float difference_delta) {
+  (void)difference_delta;
+  const float result = difference * TM_PID_P_FACTOR +
+                       accumulated_difference * TM_PID_I_FACTOR; /*+
+                       difference_delta * TM_D_FACTOR*/
+
   int32_t power_factor = (int32_t)result;
 
   if (power_factor > HM_POWER_FACTOR_MAX) {
@@ -108,25 +181,31 @@ static void TmpPidSetPowerFactor(float difference,
 }
 
 static void TmpPidHeaterHandler(void) {
-  const float accumulated_difference = g_tm_state.pid.accumulated_difference;
-
-  const float difference = g_tm_state.pid.temperature_point -
+  const float difference = g_tm_state.pid_info.temperature_point -
                            TmpConvertToFloat(g_tm_state.current_temperature);
-  g_tm_state.pid.accumulated_difference += difference * TM_TEMPERATURE_POLLING_PERIOD / 1000.0f;
 
-  TmpPidSetPowerFactor(difference, accumulated_difference);
+  const float accumulated_difference =
+      g_tm_state.pid_info.accumulated_difference;
+  g_tm_state.pid_info.accumulated_difference += difference * TM_PID_SAMPLE_TIME;
+
+  const float difference_delta =
+      (difference - g_tm_state.pid_info.difference_delta) / TM_PID_SAMPLE_TIME;
+  g_tm_state.pid_info.difference_delta = difference_delta;
+
+  TmpPidSetPowerFactor(difference, accumulated_difference, difference_delta);
 }
 
 static void TmpRelaySetupHandler(FixedPoint16 temperature_point) {
-  Fp16Add(g_tm_state.relay.max_temperature, temperature_point,
-          TmTemperatureHysteresis);
-  Fp16Sub(g_tm_state.relay.min_temperature, temperature_point,
-          TmTemperatureHysteresis);
+  Fp16Add(g_tm_state.relay_info.max_temperature, temperature_point,
+          g_tm_state.relay_settings.temperature_hysteresis_up);
+  Fp16Sub(g_tm_state.relay_info.min_temperature, temperature_point,
+          g_tm_state.relay_settings.temperature_hysteresis_down);
 }
 
 static void TmpPidSetupHandler(FixedPoint16 temperature_point) {
-  g_tm_state.pid.temperature_point = TmpConvertToFloat(temperature_point);
-  g_tm_state.pid.accumulated_difference = 0;
+  g_tm_state.pid_info.temperature_point = TmpConvertToFloat(temperature_point);
+  g_tm_state.pid_info.accumulated_difference = 0;
+  g_tm_state.pid_info.difference_delta = 0;
 }
 
 static void TmpStart(void) {
@@ -138,16 +217,16 @@ static void TmpStart(void) {
 static void TmpStop(void) {
   CLEAR_BIT(TIM16->CR1, TIM_CR1_CEN);
   CLEAR_BIT(USART2->CR1, USART_CR1_UE);
-  TIM16->CNT = 0;
+  SET_BIT(TIM6->EGR, TIM_EGR_UG);
   HmSetPowerFactor(HM_POWER_FACTOR_MIN);
 }
 
-bool TmpValidateSettings(TmMode mode, FixedPoint16 value) {
+static bool TmpValidateSettings(TmMode mode, FixedPoint16 value) {
   return mode < TmModeCount && Fp16GreaterEqual(value, TmTemperatureMin) &&
          Fp16LessEqual(value, TmTemperatureMax);
 }
 
-TpStatus TmpSetup(TmMode mode, FixedPoint16 value) {
+static TpStatus TmpSetup(TmMode mode, FixedPoint16 value) {
   g_tm_state.mode = mode;
   const tm_setup_handler_t setup_handler = g_tm_state.setup_handlers[mode];
   setup_handler(value);
@@ -191,8 +270,19 @@ static void TmpContinueMeasurement(void) {
   }
 }
 
+static void TmpUpdateSettings(void) {
+  const TmSettingsPacket* settings_packet = &g_tm_state.settings_packet;
+  if (settings_packet->type == TmModePid) {
+    g_tm_state.pid_settings = settings_packet->pid_settings;
+  } else if (settings_packet->type == TmModeRelay) {
+    g_tm_state.relay_settings = settings_packet->relay_settings;
+  }
+}
+
 TpStatus TmInitialize(void) {
+  TmpPrepareGpio();
   TmpSetupTimer();
+  TmpSetupDebugInterface();
   return DsInitialize();
 }
 
@@ -248,5 +338,15 @@ void TIM16_IRQHandler(void) {
 
       TmpContinueMeasurement();
     }
+  }
+}
+
+void DMA1_Channel2_3_IRQHandler(void) {
+  const uint32_t status = DMA1->ISR;
+  if (READ_BIT(status, DMA_ISR_TEIF3)) {
+    DMA1->IFCR = DMA_IFCR_CTEIF3;
+  } else if (READ_BIT(status, DMA_ISR_TCIF3)) {
+    DMA1->IFCR = DMA_IFCR_CTCIF3;
+    TmpUpdateSettings();
   }
 }

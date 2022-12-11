@@ -55,7 +55,7 @@ static void DspPrepareGpio(void) {
   /**
    * 1. Activate PA2 in the alternative function mode
    * 2. Setup PA2 as open-drain; external 4.7 kOhm pull-up is required
-   * 3. Select AF1 (USARTx_TX) for PA2 and AF3
+   * 3. Select AF1 (USARTx_TX) for PA2
    */
   SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOAEN);
   SET_BIT(GPIOA->MODER, GPIO_MODER_MODER2_1);  // (1)

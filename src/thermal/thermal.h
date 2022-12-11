@@ -4,7 +4,6 @@
 
 #include <stdbool.h>
 
-extern const FixedPoint16 TmTemperatureHysteresis;
 extern const FixedPoint16 TmTemperatureMin;
 extern const FixedPoint16 TmTemperatureMax;
 

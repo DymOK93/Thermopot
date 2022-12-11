@@ -13,7 +13,7 @@
 #define CTRL_TEMPERATURE_STEP 1
 #define CTRL_BUTTON_INTERRUPT_PRIORITY 3
 #define CTRL_TIMER_INTERRUPT_PRIORITY 3
-#define CTRL_BUTTON_DEBOUNCE_DELAY 100  // Milliseconds
+#define CTRL_BUTTON_DEBOUNCE_DELAY 50  // Milliseconds
 
 #define CTRL_DEFAULT_MODE TmModePid
 #define CTRL_DEFAULT_TEMPERATURE_POINT TmTemperatureMax
@@ -48,7 +48,7 @@ typedef struct {
 
 // NOLINTNEXTLINE(clang-diagnostic-padded)
 typedef struct {
-  ctrl_button_handler_t button_handler[CTRL_SETUP_STAGE_COUNT];
+  const ctrl_button_handler_t button_handler[CTRL_SETUP_STAGE_COUNT];
   volatile CtrlStage stage;
   volatile CtrlButton scheduled_button;
   volatile CtrlSettings settings;
@@ -101,7 +101,7 @@ static void CtrlpSetupTimer(void) {
 static void CtrlpSetupKeyInterrupts(void) {
   /**
    * 1. Enable interrupts on pins PA0 (user button), PA11 and PA12 (up/down)
-   * 2. Operation mode: failing edge
+   * 2. Operation mode: raising edge for user button, failing edge for up/down
    * 3. Button interrupt priority must be lower than temperature sensor timer
    * interrupt priority (i.e. higher in absolute priority value)
    */
@@ -110,8 +110,9 @@ static void CtrlpSetupKeyInterrupts(void) {
   SET_BIT(SYSCFG->EXTICR[0], SYSCFG_EXTICR1_EXTI0_PA);
   SET_BIT(SYSCFG->EXTICR[2], SYSCFG_EXTICR3_EXTI11_PA);
   SET_BIT(SYSCFG->EXTICR[3], SYSCFG_EXTICR4_EXTI12_PA);
-  SET_BIT(EXTI->FTSR, EXTI_FTSR_TR0 | EXTI_FTSR_TR11 | EXTI_FTSR_TR12);  // (2)
-  NVIC_SetPriority(EXTI0_1_IRQn, CTRL_BUTTON_INTERRUPT_PRIORITY);        // (3)
+  SET_BIT(EXTI->RTSR, EXTI_RTSR_TR0);  // (2)
+  SET_BIT(EXTI->FTSR, EXTI_FTSR_TR11 | EXTI_FTSR_TR12);
+  NVIC_SetPriority(EXTI0_1_IRQn, CTRL_BUTTON_INTERRUPT_PRIORITY);  // (3)
   NVIC_SetPriority(EXTI4_15_IRQn, CTRL_BUTTON_INTERRUPT_PRIORITY);
   NVIC_EnableIRQ(EXTI0_1_IRQn);
   NVIC_EnableIRQ(EXTI4_15_IRQn);
@@ -185,6 +186,24 @@ static void CtrlpNextMode(void) {
       g_ctrl_state.stage = (CtrlStage)(stage + 1);
       break;
   }
+}
+
+static bool CtrpCheckButtonPressed(CtrlButton button) {
+  bool pressed = false;
+  switch (button) {  // NOLINT(clang-diagnostic-switch-enum)
+    case CtrlButtonUser:
+      pressed = READ_BIT(GPIOA->IDR, GPIO_IDR_0);
+      break;
+    case CtrlButtonUp:
+      pressed = READ_BIT(GPIOA->IDR, GPIO_IDR_11) == 0;
+      break;
+    case CtrlButtonDown:
+      pressed = READ_BIT(GPIOA->IDR, GPIO_IDR_12) == 0;
+      break;
+    default:
+      break;
+  }
+  return pressed;
 }
 
 static void CtrlpScheduleButtonHandler(CtrlButton button) {
@@ -270,6 +289,10 @@ void TIM14_IRQHandler(void) {
   CLEAR_BIT(TIM14->SR, TIM_SR_UIF);
 
   const CtrlButton button = g_ctrl_state.scheduled_button;
+  if (!CtrpCheckButtonPressed(button)) {
+    return;
+  }
+
   if (button == CtrlButtonUser) {
     CtrlpNextMode();
   } else if (CtrpSetupInProgress()) {
