@@ -21,6 +21,7 @@ TpStatus TmInitialize(void);
 
 /**
  * @brief Starts or stops the thermal manager
+ * @param[in] enable Starts if true, false otherwise
  * @remark Thermal manager stopping automatically turns off the heater
  */
 void TmSetState(bool enable);

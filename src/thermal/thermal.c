@@ -7,8 +7,9 @@
 
 #include <stm32f0xx.h>
 
-#define TM_TEMPERATURE_HYSTERESIS_UP (-1)
-#define TM_TEMPERATURE_HYSTERESIS_DOWN 2
+#define TM_TEMPERATURE_HYSTERESIS_UP (-2)
+#define TM_TEMPERATURE_HYSTERESIS_DOWN_WHOLE 2
+#define TM_TEMPERATURE_HYSTERESIS_DOWN_FRACTIONAL 5
 #define TM_TEMPERATURE_MIN 0    // 5.0
 #define TM_TEMPERATURE_MAX 100  // 100.0
 
@@ -19,8 +20,7 @@
 
 #define TM_PID_SAMPLE_TIME (TM_TEMPERATURE_POLLING_PERIOD / 1000.0f)
 #define TM_PID_P_FACTOR 6
-#define TM_PID_I_FACTOR 0.005f
-#define TM_PID_D_FACTOR 0
+#define TM_PID_I_FACTOR 3
 
 #define TM_DEBUG_INTERFACE_INTERRUPT_PRIORITY 3
 #define TM_DBG_TRANSFER_BAUD 115200
@@ -46,13 +46,11 @@ typedef struct {
 typedef struct {
   float temperature_point;
   float accumulated_difference;
-  float difference_delta;
 } TmPidInfo;
 
 typedef struct {
   float p_factor;
   float i_factor;
-  float d_factor;
 } TmPidSettings;
 
 typedef struct {
@@ -92,10 +90,10 @@ static TmState g_tm_state = {
     .relay_settings = {.temperature_hysteresis_up =
                            Fp16Initialize(TM_TEMPERATURE_HYSTERESIS_UP, 0),
                        .temperature_hysteresis_down =
-                           Fp16Initialize(TM_TEMPERATURE_HYSTERESIS_DOWN, 0)},
+                           Fp16Initialize(TM_TEMPERATURE_HYSTERESIS_DOWN_WHOLE,
+                                          TM_TEMPERATURE_HYSTERESIS_DOWN_FRACTIONAL)},
     .pid_settings = {.p_factor = TM_PID_P_FACTOR,
-                     .i_factor = TM_PID_I_FACTOR,
-                     .d_factor = TM_PID_D_FACTOR}};
+                     .i_factor = TM_PID_I_FACTOR}};
 
 static void TmpPrepareGpio(void) {
   /**
@@ -162,12 +160,9 @@ static float TmpConvertToFloat(FixedPoint16 value) {
 }
 
 static void TmpPidSetPowerFactor(float difference,
-                                 float accumulated_difference,
-                                 float difference_delta) {
-  (void)difference_delta;
+                                 float accumulated_difference) {
   const float result = difference * TM_PID_P_FACTOR +
-                       accumulated_difference * TM_PID_I_FACTOR; /*+
-                       difference_delta * TM_D_FACTOR*/
+                       accumulated_difference * TM_PID_I_FACTOR;
 
   int32_t power_factor = (int32_t)result;
 
@@ -188,11 +183,7 @@ static void TmpPidHeaterHandler(void) {
       g_tm_state.pid_info.accumulated_difference;
   g_tm_state.pid_info.accumulated_difference += difference * TM_PID_SAMPLE_TIME;
 
-  const float difference_delta =
-      (difference - g_tm_state.pid_info.difference_delta) / TM_PID_SAMPLE_TIME;
-  g_tm_state.pid_info.difference_delta = difference_delta;
-
-  TmpPidSetPowerFactor(difference, accumulated_difference, difference_delta);
+  TmpPidSetPowerFactor(difference, accumulated_difference);
 }
 
 static void TmpRelaySetupHandler(FixedPoint16 temperature_point) {
@@ -205,7 +196,6 @@ static void TmpRelaySetupHandler(FixedPoint16 temperature_point) {
 static void TmpPidSetupHandler(FixedPoint16 temperature_point) {
   g_tm_state.pid_info.temperature_point = TmpConvertToFloat(temperature_point);
   g_tm_state.pid_info.accumulated_difference = 0;
-  g_tm_state.pid_info.difference_delta = 0;
 }
 
 static void TmpStart(void) {
@@ -217,7 +207,6 @@ static void TmpStart(void) {
 static void TmpStop(void) {
   CLEAR_BIT(TIM16->CR1, TIM_CR1_CEN);
   CLEAR_BIT(USART2->CR1, USART_CR1_UE);
-  SET_BIT(TIM6->EGR, TIM_EGR_UG);
   HmSetPowerFactor(HM_POWER_FACTOR_MIN);
 }
 
@@ -248,7 +237,7 @@ static TpStatus TmpGetMeasurementStatus(bool wait) {
 
 static void TmpStartMeasurement(void) {
   do {
-    TpStatus status = DsPrepare();
+    TpStatus status = DsPrepare(DsResolution9Bit);
     BREAK_ON_ERROR(status);
 
     status = DsConvertTemperature();

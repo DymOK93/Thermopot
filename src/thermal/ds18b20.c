@@ -23,7 +23,9 @@
 
 #define DS_TH_MAX 125
 #define DS_TL_MIN (-55)
-#define DS_ACCURACY_MASK 0x20  // 10-bit accuracy
+
+#define DS_RESOLUTION_MASK DsResolution12Bit
+#define DS_RESOLUTION_SHIFT 4
 
 #define DS_SKIP_ROM 0xCC
 #define DS_CONVERT_TEMPERATURE 0x44
@@ -44,12 +46,8 @@ typedef struct PACKED {
 typedef struct {
   int8_t th;
   int8_t tl;
-  unsigned char accuracy;
+  uint8_t resolution;
 } DsConfig;
-
-static const DsConfig g_ds_config = {.th = DS_TH_MAX,
-                                     .tl = DS_TL_MIN,
-                                     .accuracy = DS_ACCURACY_MASK | 0x1F};
 
 static void DspPrepareGpio(void) {
   /**
@@ -173,7 +171,8 @@ TpStatus DspReadTemperature(FixedPoint16* temperature) {
     return TpCrcError;
   }
 
-  Fp16WriteAsNumber(*temperature, scratchpad.temperature >> DS_TEMPERATURE_SHIFT);
+  Fp16WriteAsNumber(*temperature,
+                    scratchpad.temperature >> DS_TEMPERATURE_SHIFT);
 
   return TpSuccess;
 }
@@ -184,10 +183,18 @@ TpStatus DsInitialize(void) {
   return TpSuccess;
 }
 
-TpStatus DsPrepare(void) {
-  return DspSendCommandWithPayload(DS_WRITE_SCRATCHPAD,
-                                   (const unsigned char*)&g_ds_config,
-                                   sizeof(DsConfig));
+TpStatus DsPrepare(DsResolution resolution) {
+  /*
+   * Resolution mask is stored in 6th and 5th bits of resolution configuration
+   * byte
+   */
+  const uint8_t raw_resolution =
+      (uint8_t)((resolution & DS_RESOLUTION_MASK) << DS_RESOLUTION_SHIFT);
+  const DsConfig ds_config = {
+      .th = DS_TH_MAX, .tl = DS_TL_MIN, .resolution = raw_resolution | 0x1F};
+
+  return DspSendCommandWithPayload(
+      DS_WRITE_SCRATCHPAD, (const unsigned char*)&ds_config, sizeof(DsConfig));
 }
 
 TpStatus DsConvertTemperature(void) {
