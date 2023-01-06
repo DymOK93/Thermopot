@@ -49,7 +49,7 @@ TpStatus SsiSetValue(SsiValue value);
 
 /**
  * @brief Sets a fixed point number as the value of the SSI panel
- * @param[in] value Fixed-point number in range [SSI_NUMBER_MIN; SSI_NUMBER_MAX]
+ * @param[in] number Fixed-point number in range [SSI_NUMBER_MIN; SSI_NUMBER_MAX]
  * @return
  *    - TpInvalidParameter if number is out of range
  *    - TpSuccess otherwise

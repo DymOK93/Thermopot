@@ -14,9 +14,13 @@
 #define HM_PULSE_DELAY_COUNT (HM_POWER_FACTOR_MAX - HM_POWER_FACTOR_MIN)
 
 typedef struct {
-  uint8_t power_factor;
-  uint8_t turn_on_point;
-  const uint16_t pulse_delay[HM_PULSE_DELAY_COUNT];
+  uint8_t power_factor;  //!< Current power factor in %
+
+  // clang-format off
+  // NOLINTNEXTLINE(clang-diagnostic-padded)
+  const uint16_t pulse_delay[HM_PULSE_DELAY_COUNT];  //!< Offset in us from the transition of the sine of the mains voltage through 0
+                                                     //!< for a given power factor (area under the sine half-wave) in %
+  // clang-format on
 } HmState;
 
 static HmState g_hm_state = {
@@ -32,6 +36,13 @@ static HmState g_hm_state = {
                     946,  893,  841,  789,  738,  687,  636,  586,  536,  487,
                     437,  388,  339,  290,  242,  193,  145,  96,   48,   0}};
 
+/*
+ * @brief Configures GPIO pins for zero-cross detector based on photocoupler and
+ * optotriac control
+ * @warning Bidirectional photocoupler (LTV814, etc.) should be connected as
+ * open collector circuit
+ * @warning Optotriac without built-in zero detector required (MOC302x, etc.)
+ */
 static void HmpPrepareGpio() {
   /**
    * 1. Activate PB14, PB15 in the alternative function mode
@@ -43,6 +54,9 @@ static void HmpPrepareGpio() {
   SET_BIT(GPIOB->PUPDR, GPIO_PUPDR_PUPDR14_1 | GPIO_PUPDR_PUPDR15_0);  // (2)
 }
 
+/**
+ * @brief Configures the hardware timer for pulse-phase control of the optotriac
+ */
 static void HmpSetupTimer() {
   /*
    * 1. Tick period is 1us
@@ -61,24 +75,30 @@ static void HmpSetupTimer() {
                            TIM_SMCR_TS_1);  // (5)
 }
 
+/*
+ * @brief Turns on the main timer output
+ */
 static void HmpStart(void) {
-  /*
-   * Main output enable
-   */
   SET_BIT(TIM15->BDTR, TIM_BDTR_MOE);
 }
 
+/*
+ * @brief Turns off the main timer output
+ */
 static void HmpStop(void) {
-  /*
-   * Main output disable
-   */
   CLEAR_BIT(TIM15->BDTR, TIM_BDTR_MOE);
 }
 
+/**
+ * @brief Stores the power factor in the global state and adjusts the period and
+ * duration of the optotriac control pulses
+ * @param[in] power_factor Power factor in range [HM_POWER_FACTOR_MIN,
+ * HM_POWER_FACTOR_MAX]
+ */
 static void HmpSetPowerFactor(uint8_t power_factor) {
   /**
-   * 1. Pulse delay is (TIM15_CCR1 - TIM15_CNT)
-   * 2. Pulse width is (TIM15_ARR - TIM15_CCR1)
+   * 1. Pulse delay is (TIM15_CCR1 - TIM15_CNT) us
+   * 2. Pulse width is (TIM15_ARR - TIM15_CCR1) us
    */
   g_hm_state.power_factor = power_factor;
   if (power_factor == HM_POWER_FACTOR_MIN) {
