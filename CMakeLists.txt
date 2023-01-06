@@ -26,8 +26,8 @@ set(ISO_COMPILE_OPTIONS
         -Wpedantic)
 
 set(BUILD_TYPE_SPECIFIC_COMPILE_OPTIONS
-        $<$<CONFIG:Debug>:-O0 -g3>
-        $<$<CONFIG:Release>:-O0 -g3>)
+        $<$<CONFIG:Debug>:-Og -g3>
+        $<$<CONFIG:Release>:-O3 -flto>)
 
 set(BASIC_LINK_OPTIONS
         ${ARCHITECTURE_SPECIFIC_OPTIONS}
