@@ -2,7 +2,7 @@
 #include <stdint.h>
 
 #define FP16_FRACTIONAL_BITS 1
-#define FP16_FRACTIONAL_MASK 1
+#define FP16_FRACTIONAL_MASK ((1 << FP16_FRACTIONAL_BITS) - 1)
 #define FP16_WHOLE_BITS (16 - FP16_FRACTIONAL_BITS)
 
 typedef struct {
@@ -23,8 +23,8 @@ typedef struct {
 #define Fp16Whole(fp) (Fp16ReadAsNumber(fp) >> 1)
 #define Fp16Fractional(fp) (Fp16ReadAsNumber(fp) & 1)
 
-#define Fp16Positive(fp) ((fp).whole > 0)
-#define Fp16Negative(fp) ((fp).whole < 0)
+#define Fp16Positive(fp) (Fp16ReadAsNumber(fp) > 0)
+#define Fp16Negative(fp) (Fp16ReadAsNumber(fp) < 0)
 
 #define Fp16Equal(lhs, rhs) (Fp16ReadAsNumber(lhs) == Fp16ReadAsNumber(rhs))
 #define Fp16Greater(lhs, rhs) (Fp16ReadAsNumber(lhs) > Fp16ReadAsNumber(rhs))
