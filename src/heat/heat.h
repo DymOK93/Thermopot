@@ -1,11 +1,15 @@
+/**
+ * @file
+ * @brief Heater Manager interface
+ */
 #pragma once
 #include <tools/status.h>
 
 #include <stdint.h>
 
-#define HM_VOLTAGE_FREQUENCY 50
-#define HM_POWER_FACTOR_MIN 0
-#define HM_POWER_FACTOR_MAX 100
+#define HM_VOLTAGE_FREQUENCY 50  //!< Mains voltage frequency in Hz
+#define HM_POWER_FACTOR_MIN 0    //!< Minimum allowed power factor in %
+#define HM_POWER_FACTOR_MAX 100  //!< Maximum allowed power factor in %
 
 /**
  * @brief Initializes the heater manager

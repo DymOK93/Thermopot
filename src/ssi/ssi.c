@@ -1,3 +1,7 @@
+/**
+ * @file
+ * @brief Seven-Segment Indicator Manager implementation
+ */
 #include "ssi.h"
 
 #include <tools/utils.h>
@@ -8,21 +12,23 @@
 
 #include <stm32f0xx.h>
 
-#define SSI_FP_INDEX 1
-#define SSI_FP_DOT 0x80
-#define SSI_DIGIT_SHIFT 2
+#define SSI_FP_INDEX 1   //!< Decimal separator digit number
+#define SSI_FP_DOT 0x80  //!< Decimal separator segment mask
+
+#define SSI_DIGIT_OFFSET 2  //!< Digit control pins offset in GPIO->ODR
+#define SSI_DIGIT_MASK ((1 << SSI_PANEL_SIZE) - 1)  //!< Digit control pins mask
 
 #define SSI_TIMER_INTERRUPT_PRIORITY 1
 #define SSI_SPI_INTERRUPT_PRIORITY 1
-#define SSI_FRAMES_PER_SECOND 60
+#define SSI_DIGIT_FPS 60
 
 typedef struct {
-  SsiValue value;
-  volatile uint8_t segment_mask[SSI_PANEL_SIZE];
-  volatile bool is_number;
-  volatile uint8_t idx;
-  const FixedPoint16 min_number;
-  const FixedPoint16 max_number;
+  SsiValue value;  //!< Current value in raw format
+  volatile uint8_t segment_mask[SSI_PANEL_SIZE];  //!< Indicator segment mask
+  volatile bool is_number;        //!< Displaying decimal separator
+  volatile uint8_t idx;           //!< Active indicator index
+  const FixedPoint16 min_number;  //!< Minimum allowed number
+  const FixedPoint16 max_number;  //!< Maximum allowed number
 } SsiState;
 
 static SsiState g_ssi_state = {.value = {{0}},
@@ -32,6 +38,10 @@ static SsiState g_ssi_state = {.value = {{0}},
                                .min_number = Fp16Initialize(SSI_NUMBER_MIN, 0),
                                .max_number = Fp16Initialize(SSI_NUMBER_MAX, 0)};
 
+/**
+ * @brief Configures GPIO pins for data transfer to 74HC595 shift register via
+ * SPI, its latching and control of the activating the SSI digit
+ */
 static void SsipPrepareGpio(void) {
   /**
    * 1. Activate PA5, PA7 in the alternative function mode; AF0
@@ -49,6 +59,10 @@ static void SsipPrepareGpio(void) {
                              GPIO_OTYPER_OT_4 | GPIO_OTYPER_OT_5);
 }
 
+/**
+ * @brief Configures the SPI transceiver to transmit data to the 74HC595
+ * @see https://assets.nexperia.com/documents/data-sheet/74HC_HCT595.pdf
+ */
 static void SsipSetupSpi(void) {
   /**
    * The maximum frequency of 74HC595 is about 4MHz, the maximum frequency of
@@ -64,6 +78,9 @@ static void SsipSetupSpi(void) {
   NVIC_EnableIRQ(SPI1_IRQn);
 }
 
+/**
+ * @brief Sets a timer to dynamically switch the currently displayed digit
+ */
 static void SsipSetupTimer(void) {
   /*
    * 1. Tick period is 1ms
@@ -72,7 +89,7 @@ static void SsipSetupTimer(void) {
    */
   SET_BIT(RCC->APB1ENR, RCC_APB1ENR_TIM6EN);
   TIM6->PSC = (uint16_t)(SystemCoreClock / 1000 - 1);  // (1)
-  TIM6->ARR = (uint16_t)(1000 / (SSI_FRAMES_PER_SECOND * SSI_PANEL_SIZE));
+  TIM6->ARR = (uint16_t)(1000 / (SSI_DIGIT_FPS * SSI_PANEL_SIZE));
 
   SET_BIT(TIM6->DIER, TIM_DIER_UIE);  // (2)
   SET_BIT(TIM6->CR1, TIM_CR1_URS);    // (3)
@@ -81,17 +98,29 @@ static void SsipSetupTimer(void) {
   NVIC_EnableIRQ(TIM6_DAC_IRQn);
 }
 
+/**
+ * @brief Starts the timer and enables SPI communication
+ */
 static void SsipStart() {
   SET_BIT(TIM6->CR1, TIM_CR1_CEN);
   SET_BIT(SPI1->CR1, SPI_CR1_SPE);
 }
 
+/**
+ * @brief Stops the timer and disables SPI communication
+ */
 static void SsipStop(void) {
   CLEAR_BIT(SPI1->CR1, SPI_CR1_SPE);
   CLEAR_BIT(TIM6->CR1, TIM_CR1_CEN);
-  SET_BIT(TIM6->EGR, TIM_EGR_UG);
 }
 
+/**
+ * @brief Validates a value before displaying
+ * @param[in] value Raw character string
+ * @return
+ *    - true if value contains only 'a'-'z', 'A'-'Z', '0'-'9', '-', ' ' and '\0'
+ *    - false otherwise
+ */
 static bool SsipValidateValue(SsiValue value) {
   uint8_t idx = 0;
   for (; idx < SSI_PANEL_SIZE; ++idx) {
@@ -105,6 +134,12 @@ static bool SsipValidateValue(SsiValue value) {
   return true;
 }
 
+/**
+ * @brief Parses a fixed-point number into a raw character string
+ * @param[in] number Fixed-point number in range [SSI_NUMBER_MIN;
+ * SSI_NUMBER_MAX]
+ * @return Raw value
+ */
 static SsiValue SsipParseNumber(FixedPoint16 number) {
   const int16_t whole_part = Fp16Whole(number);
   uint16_t unsigned_number = (uint16_t)abs(whole_part);
@@ -125,12 +160,17 @@ static SsiValue SsipParseNumber(FixedPoint16 number) {
   return value;
 }
 
-static uint8_t SsipGetSegmentMask(char value) {
-  /*
+/**
+ * @brief Calculates the segment mask
+ * @param[in] ch Character
+ * @return Segment mask or 0 if character is invalid
+ */
+static uint8_t SsipGetSegmentMask(char ch) {
+  /**
    * Bits 0..7 -> segments A...G (H is always empty)
    */
   uint8_t mask;
-  switch (value) {
+  switch (ch) {
     case '\0':
     case ' ':
       mask = 0x0;  // 0b00000000
@@ -279,13 +319,22 @@ static uint8_t SsipGetSegmentMask(char value) {
   return mask;
 }
 
-static bool SsipStaleValue(SsiValue value, bool is_number) {
-  if (is_number != g_ssi_state.is_number) {
-    return false;
-  }
-  return memcmp(&value, &g_ssi_state.value, sizeof(SsiValue)) == 0;
+/**
+ * @brief Compares the given value with the current
+ * @param[in] value New value
+ * @param[in] is_number Number or raw character string
+ * @return true if the new value is equal to the current value, false otherwise
+ */
+static bool SsipEqualValue(SsiValue value, bool is_number) {
+  return is_number == g_ssi_state.is_number &&
+         !memcmp(&value, &g_ssi_state.value, sizeof(SsiValue));
 }
 
+/**
+ * @brief Fills in the global segment mask, including the decimal point
+ * @param[in] value New value
+ * @param[in] is_number Number or raw character string
+ */
 static void SsipFillSegmentMask(SsiValue value, bool is_number) {
   uint8_t idx = 0;
   for (; idx < SSI_PANEL_SIZE; ++idx) {
@@ -296,11 +345,20 @@ static void SsipFillSegmentMask(SsiValue value, bool is_number) {
   }
 }
 
+/**
+ * @brief Validates and sets a new SSI value if it is not equivalent to the
+ * current
+ * @param[in] value New value
+ * @param[in] is_number Number or raw character string
+ * @return
+ *    - TpInvalidParameter if value contains invalid characters
+ *    - TpSuccess otherwise
+ */
 static TpStatus SsipSetValue(SsiValue value, bool is_number) {
   if (!SsipValidateValue(value)) {
     return TpInvalidParameter;
   }
-  if (!SsipStaleValue(value, is_number)) {
+  if (!SsipEqualValue(value, is_number)) {
     g_ssi_state.value = value;
     g_ssi_state.is_number = is_number;
     SsipFillSegmentMask(value, is_number);
@@ -308,8 +366,12 @@ static TpStatus SsipSetValue(SsiValue value, bool is_number) {
   return TpSuccess;
 }
 
+/**
+ * @brief Sends the given segment mask over SPI to 74HC595
+ * @param[in] segment_mask Segment mask
+ */
 static void SsipDrawSegment(uint8_t segment_mask) {
-  /*
+  /**
    * Explicit 8-bit write access is root of evil
    */
   *(volatile uint8_t*)&SPI1->DR = segment_mask;
@@ -317,18 +379,23 @@ static void SsipDrawSegment(uint8_t segment_mask) {
     ;
 }
 
+/**
+ * @brief Latches the 74HC595 with a positive STCP pulse and toggles active
+ * digit by shorting it to VSS
+ * @param[in] idx Digit index in range [0, SSI_PANEL_SIZE)
+ */
 static void SsipActivateSegment(uint8_t idx) {
-  /*
+  /**
    * 1. Transfer data to storage register by setting STCP
-   * 2. Clear all digits
-   * 3. Activate the corresponding output (0...3 -> PB2...5)
-   * 4. Reset STCP
+   * 2. Reset STCP
+   * 3. Clear all digits
+   * 4. Activate the corresponding output (0...3 -> PB2...5)
    */
   SET_BIT(GPIOA->BSRR, GPIO_BSRR_BS_6);  // (1)
-  SET_BIT(GPIOA->BSRR, GPIO_BSRR_BR_6);  // (4)
+  SET_BIT(GPIOA->BSRR, GPIO_BSRR_BR_6);  // (2)
 
-  SET_BIT(GPIOB->ODR, 0xF << SSI_DIGIT_SHIFT);                      // (2)
-  CLEAR_BIT(GPIOB->ODR, (uint16_t)(1 << (idx + SSI_DIGIT_SHIFT)));  // (3)
+  SET_BIT(GPIOB->ODR, SSI_DIGIT_MASK << SSI_DIGIT_OFFSET);           // (3)
+  CLEAR_BIT(GPIOB->ODR, (uint16_t)(1 << (idx + SSI_DIGIT_OFFSET)));  // (4)
 }
 
 TpStatus SsiInitialize(void) {
@@ -367,6 +434,10 @@ TpStatus SsiSetNumber(FixedPoint16 number) {
   return SsipSetValue(SsipParseNumber(number), true);
 }
 
+/**
+ * @brief Draws the next digit on the SSI panel
+ * @remark Timer interrupt routine
+ */
 void TIM6_DAC_IRQHandler(void) {
   CLEAR_BIT(TIM6->SR, TIM_SR_UIF);
 

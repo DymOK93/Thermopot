@@ -1,3 +1,7 @@
+/**
+ * @file
+ * @brief Heater Manager implementation
+ */
 #include "heat.h"
 
 #include <tools/utils.h>
@@ -8,9 +12,9 @@
  * At HM_POWER_FACTOR_MIN heater is always off
  *
  * Maximum zero detection delay is (28us + t_rise) ~ 350us so maximum pulse
- * delay is (10000 - (HM_PULSE_WIDTH + 350))
+ * delay is (10000 - (HM_PULSE_DURATION + 350))
  */
-#define HM_PULSE_WIDTH 50
+#define HM_PULSE_DURATION 50  //!< Triac control pulse duration
 #define HM_PULSE_DELAY_COUNT (HM_POWER_FACTOR_MAX - HM_POWER_FACTOR_MIN)
 
 typedef struct {
@@ -36,7 +40,7 @@ static HmState g_hm_state = {
                     946,  893,  841,  789,  738,  687,  636,  586,  536,  487,
                     437,  388,  339,  290,  242,  193,  145,  96,   48,   0}};
 
-/*
+/**
  * @brief Configures GPIO pins for zero-cross detector based on photocoupler and
  * optotriac control
  * @warning Bidirectional photocoupler (LTV814, etc.) should be connected as
@@ -58,7 +62,7 @@ static void HmpPrepareGpio() {
  * @brief Configures the hardware timer for pulse-phase control of the optotriac
  */
 static void HmpSetupTimer() {
-  /*
+  /**
    * 1. Tick period is 1us
    * 2. One-pulse mode
    * 3. PWM mode 2 (_|_) without fast output
@@ -75,14 +79,14 @@ static void HmpSetupTimer() {
                            TIM_SMCR_TS_1);  // (5)
 }
 
-/*
+/**
  * @brief Turns on the main timer output
  */
 static void HmpStart(void) {
   SET_BIT(TIM15->BDTR, TIM_BDTR_MOE);
 }
 
-/*
+/**
  * @brief Turns off the main timer output
  */
 static void HmpStop(void) {
@@ -105,8 +109,8 @@ static void HmpSetPowerFactor(uint8_t power_factor) {
     HmpStop();
   } else {
     const uint16_t pulse_delay = g_hm_state.pulse_delay[power_factor - 1];
-    TIM15->CCR1 = pulse_delay;                  // (1)
-    TIM15->ARR = pulse_delay + HM_PULSE_WIDTH;  // (2)
+    TIM15->CCR1 = pulse_delay;                     // (1)
+    TIM15->ARR = pulse_delay + HM_PULSE_DURATION;  // (2)
     HmpStart();
   }
 }
