@@ -1,7 +1,6 @@
 /**
  * @file
  * @brief Thermal Manager implementation
- *
  */
 #include "thermal.h"
 #include "ds18b20.h"
@@ -26,9 +25,10 @@
 
 #define TM_MODE_INACTIVE TmModeCount  //!< Initial mode
 
-#define TM_TEMPERATURE_SAMPLING_PERIOD \
-  100  //!< Temperature sampling period in ms
-#define TM_TIMER_INTERRUPT_PRIORITY 2
+// clang-format off
+#define TM_TEMPERATURE_SAMPLING_PERIOD 100  //!< Temperature sampling period in ms
+#define TM_TIMER_INTERRUPT_PRIORITY 2       //!< Timer interrupt priority must be higher than user input interrupt priority (i.e. less absolute value)
+// clang-format on
 
 /**
  * PID (technically PI) regulator settings
@@ -141,8 +141,7 @@ static TmState g_tm_state = {
     .pid_settings = {.p_factor = TM_PID_P_FACTOR, .i_factor = TM_PID_I_FACTOR}};
 
 /**
- * @brief Configures GPIO pins for 1-Wire digital thermal sensor (DS18B20) and
- * USART debug interface
+ * @brief Configures GPIO pins for USART debug interface
  */
 static void TmpPrepareGpio(void) {
   /**
@@ -163,8 +162,6 @@ static void TmpSetupTimer() {
   /**
    * 1. Tick period is 1ms
    * 2. Enable update interrupt
-   * 3. Timer interrupt priority must be higher than user input interrupt
-   * handlers (i.e. less absolute value)
    */
   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM16EN);
   TIM16->PSC = (uint16_t)(SystemCoreClock / 1000 - 1);  // (1)
@@ -172,7 +169,7 @@ static void TmpSetupTimer() {
 
   SET_BIT(TIM16->DIER, TIM_DIER_UIE);  // (2)
   NVIC_EnableIRQ(TIM16_IRQn);
-  NVIC_SetPriority(TIM16_IRQn, TM_TIMER_INTERRUPT_PRIORITY);  // (4)
+  NVIC_SetPriority(TIM16_IRQn, TM_TIMER_INTERRUPT_PRIORITY);  
 }
 
 /**
@@ -376,7 +373,7 @@ static void TmpStartMeasurement(void) {
 
   } while (false);
 
-  TmpRaiseDeviceError(); 
+  TmpRaiseDeviceError();
 }
 
 /**

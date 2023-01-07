@@ -3,8 +3,8 @@
  * @brief Thermal Manager interface
  *
  * The thermal manager encapsulates the algorithms for changing and maintaining
- * the water temperature (using Relay or Proportional-Integral-Derivative a.k.a.
- * PID controller), mediates between the Control and the Heater Manager
+ * the temperature (using Relay or Proportional-Integral-Derivative a.k.a. PID
+ * controller), mediates between the Control and the Heater Manager
  */
 #pragma once
 #include <tools/fixed_point.h>
@@ -55,7 +55,8 @@ TpStatus TmQueryTemperature(FixedPoint16* temperature, bool wait);
  * @param[in] temperature_point Temperature point in fixed point format
  * @return
  *    - TpAlreadyRunning if Thermal Manager isn't stopped
- *    - TpInvalidParameter if not (TmTemperatureMin <= temperature_point <= TmTemperatureMax)
+ *    - TpInvalidParameter if not (TmTemperatureMin <= temperature_point <=
+ * TmTemperatureMax)
  *    - TpSuccess otherwise
  */
 TpStatus TmSetup(TmMode mode, FixedPoint16 temperature_point);

@@ -1,9 +1,17 @@
+/**
+ * @file
+ * @brief DS18B20 digital thermal sensor interface
+ *
+ * Used internally by Thermal Manager to measure temperature
+ */
 #pragma once
 #include <tools/fixed_point.h>
 #include <tools/status.h>
 
-#include <stdint.h>
-
+/**
+ * @enum DsResolution
+ * @brief Resolution of DS18B20 in significant data bits
+ */
 typedef enum {
   DsResolution9Bit = 0x0,
   DsResolution10Bit = 0x1,
