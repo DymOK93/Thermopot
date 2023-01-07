@@ -1,3 +1,7 @@
+/**
+ * @file
+ * @brief Fixed point arithmetic
+ */
 #pragma once
 #include <stdint.h>
 
@@ -5,6 +9,10 @@
 #define FP16_FRACTIONAL_MASK ((1 << FP16_FRACTIONAL_BITS) - 1)
 #define FP16_WHOLE_BITS (16 - FP16_FRACTIONAL_BITS)
 
+/**
+ * @struct FixedPoint16
+ * @brief 16-bit fixed point value
+ */
 typedef struct {
   int16_t value;
 } FixedPoint16;

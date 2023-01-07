@@ -1,3 +1,7 @@
+/**
+ * @file
+ * @brief Various helper macros and functions
+ */
 #pragma once
 
 #define IS_NULL_TERMINATOR(ch) ((ch) == '\0')

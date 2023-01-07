@@ -1,5 +1,15 @@
+/**
+ * @file
+ * @brief Status/error codes and user-friendly macro for its checking
+ *
+ * Like NTSTATUS, but TpStatus
+ */
 #pragma once
 
+/**
+ * @enum TpStatus
+ * @brief Status and error codes
+ */
 typedef enum {
   TpSuccess = 0,
   TpPending = 1,
