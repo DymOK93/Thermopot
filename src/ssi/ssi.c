@@ -22,6 +22,10 @@
 #define SSI_SPI_INTERRUPT_PRIORITY 1
 #define SSI_DIGIT_FPS 60
 
+/**
+ * @struct SsiState
+ * @brief SSI Manager global state
+ */
 typedef struct {
   SsiValue value;  //!< Current value in raw format
   volatile uint8_t segment_mask[SSI_PANEL_SIZE];  //!< Indicator segment mask
@@ -135,7 +139,7 @@ static bool SsipValidateValue(SsiValue value) {
 }
 
 /**
- * @brief Parses a fixed-point number into a raw character string
+ * @brief Parses a fixed point number into a raw character string
  * @param[in] number Fixed-point number in range [SSI_NUMBER_MIN;
  * SSI_NUMBER_MAX]
  * @return Raw value
@@ -368,6 +372,7 @@ static TpStatus SsipSetValue(SsiValue value, bool is_number) {
 
 /**
  * @brief Sends the given segment mask over SPI to 74HC595
+ * @warning Called from a timer interrupt routine
  * @param[in] segment_mask Segment mask
  */
 static void SsipDrawSegment(uint8_t segment_mask) {
@@ -382,6 +387,7 @@ static void SsipDrawSegment(uint8_t segment_mask) {
 /**
  * @brief Latches the 74HC595 with a positive STCP pulse and toggles active
  * digit by shorting it to VSS
+ * @warning Called from a timer interrupt routine
  * @param[in] idx Digit index in range [0, SSI_PANEL_SIZE)
  */
 static void SsipActivateSegment(uint8_t idx) {

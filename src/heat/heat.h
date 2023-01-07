@@ -1,6 +1,10 @@
 /**
  * @file
  * @brief Heater Manager interface
+ *
+ * The Heater Manager abstracts the power control of the heater element,
+ * allowing a generic "power factor"  to be set in percentages in the
+ * range [HM_POWER_FACTOR_MIN, HM_POWER_FACTOR_MAX]
  */
 #pragma once
 #include <tools/status.h>
@@ -12,11 +16,7 @@
 #define HM_POWER_FACTOR_MAX 100  //!< Maximum allowed power factor in %
 
 /**
- * @brief Initializes the heater manager
- *
- * The heater manager abstracts the power control of the heater element,
- * allowing a generic "power factor"  to be set in percentages in the
- * range [HM_POWER_FACTOR_MIN, HM_POWER_FACTOR_MAX]
+ * @brief Initializes the Heater Manager
  * @return TpSuccess
  */
 TpStatus HmInitialize(void);

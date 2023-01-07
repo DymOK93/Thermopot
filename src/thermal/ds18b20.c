@@ -13,8 +13,8 @@
 #define PACKED __attribute__((packed))
 
 #define DS_OW_TRANSFER_GRANULARITY 8
-#define DS_OW_RESET_BAUD 9600
-#define DS_OW_TRANSFER_BAUD 115200
+#define DS_OW_RESET_BAUD_RATE 9600
+#define DS_OW_TRANSFER_BAUD_RATE 115200
 #define DS_OW_RESET_TIMEOUT_SHIFT 12
 #define DS_OW_TRANSFER_TIMEOUT_SHIFT 10
 #define DS_OW_ZERO 0x00
@@ -70,7 +70,7 @@ static void DspSetupTransceiver(void) {
   SET_BIT(USART2->CR1, USART_CR1_RE | USART_CR1_TE | USART_CR1_UE);
 }
 
-static void DspUpdateTransceiverBaud(uint32_t baud) {
+static void DspUpdateTransceiverBaudRate(uint32_t baud) {
   CLEAR_BIT(USART2->CR1, USART_CR1_UE);
   USART2->BRR = (uint16_t)(SystemCoreClock / baud);
   SET_BIT(USART2->CR1, USART_CR1_UE);
@@ -117,12 +117,12 @@ static void DspRecv(unsigned char* buffer, uint32_t bytes_count) {
 }
 
 static TpStatus DspReset() {
-  DspUpdateTransceiverBaud(DS_OW_RESET_BAUD);
+  DspUpdateTransceiverBaudRate(DS_OW_RESET_BAUD_RATE);
 
   const uint8_t echo = DspPumpRawSequence(
       DS_OW_RESET, SystemCoreClock >> DS_OW_RESET_TIMEOUT_SHIFT);
 
-  DspUpdateTransceiverBaud(DS_OW_TRANSFER_BAUD);
+  DspUpdateTransceiverBaudRate(DS_OW_TRANSFER_BAUD_RATE);
 
   return echo != DS_OW_RESET ? TpSuccess : TpDeviceNotConnected;
 }

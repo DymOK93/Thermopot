@@ -1,6 +1,10 @@
 /**
  * @file
  * @brief Seven-Segment Indicator Manager interface
+ *
+ * The SSI manager controls a seven-segment indicator panel, providing the
+ * ability to easily output raw character strings and fixed point decimal
+ * numbers
  */
 #pragma once
 #include <tools/fixed_point.h>

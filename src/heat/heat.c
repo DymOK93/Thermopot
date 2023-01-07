@@ -17,6 +17,10 @@
 #define HM_PULSE_DURATION 50  //!< Triac control pulse duration
 #define HM_PULSE_DELAY_COUNT (HM_POWER_FACTOR_MAX - HM_POWER_FACTOR_MIN)
 
+/**
+ * @struct HmState
+ * @brief Heater Manager global state
+ */
 typedef struct {
   uint8_t power_factor;  //!< Current power factor in %
 
