@@ -1,3 +1,7 @@
+/**
+ * @file
+ * @brief Control implementation
+ */
 #include "control.h"
 
 #include <ssi/ssi.h>
@@ -124,7 +128,7 @@ static void CtrlpUpdateDefaults(void) {
 }
 
 static void CtrlpSetupMode(CtrlButton button) {
-  /*
+  /**
    * It doesn't matter which button was clicked as there are only 2 possible
    * values
    */

@@ -38,10 +38,10 @@
 #define TM_PID_I_FACTOR 1       //!< Integral coefficient
 
 /**
- * USART debug interface settings
+ * USART configuration interface settings
  */
-#define TM_DEBUG_INTERFACE_INTERRUPT_PRIORITY 3
-#define TM_DEBUG_INTERFACE_TRANSFER_BAUD_RATE 115200
+#define TM_CONFIGURATION_INTERFACE_INTERRUPT_PRIORITY 3
+#define TM_CONFIGURATION_INTERFACE_TRANSFER_BAUD_RATE 115200
 
 typedef void (*tm_heater_handler_t)(void);
 static void TmpRelayHeaterHandler(void);
@@ -91,7 +91,7 @@ typedef struct {
 
 /**
  * @struct TmSettings
- * @brief Configuration data sent via the debug interface
+ * @brief Configuration data sent via UART
  */
 typedef struct {
   TmMode type;  //!< Target controller type
@@ -121,7 +121,7 @@ typedef struct {
 
   volatile TmRelaySettings relay_settings;  //!< Relay controller settings
   volatile TmPidSettings pid_settings;      //!< PID controller settings
-  TmSettings settings;                      //!< Debug interface DMA buffer
+  TmSettings settings;                      //!< Configuration interface DMA buffer
 } TmState;
 // clang-format on
 
@@ -141,7 +141,7 @@ static TmState g_tm_state = {
     .pid_settings = {.p_factor = TM_PID_P_FACTOR, .i_factor = TM_PID_I_FACTOR}};
 
 /**
- * @brief Configures GPIO pins for USART debug interface
+ * @brief Configures GPIO pins for USART configuration interface
  */
 static void TmpPrepareGpio(void) {
   /**
@@ -169,13 +169,13 @@ static void TmpSetupTimer() {
 
   SET_BIT(TIM16->DIER, TIM_DIER_UIE);  // (2)
   NVIC_EnableIRQ(TIM16_IRQn);
-  NVIC_SetPriority(TIM16_IRQn, TM_TIMER_INTERRUPT_PRIORITY);  
+  NVIC_SetPriority(TIM16_IRQn, TM_TIMER_INTERRUPT_PRIORITY);
 }
 
 /**
- * @brief Configures the USART transceiver for debug interface
+ * @brief Configures the USART transceiver for configuration interface
  */
-static void TmpSetupDebugInterface(void) {
+static void TmpSetupConfigurationInterface(void) {
   /**
    * 1. Setup DMA peripheral-to-memory in circular mode
    * 2. Enable DMA interrupt
@@ -189,11 +189,12 @@ static void TmpSetupDebugInterface(void) {
   DMA1_Channel3->CMAR = (uint32_t)&g_tm_state.settings;
   SET_BIT(DMA1_Channel3->CCR, DMA_CCR_EN);
 
-  NVIC_SetPriority(DMA1_Channel2_3_IRQn, TM_DEBUG_INTERFACE_INTERRUPT_PRIORITY);
+  NVIC_SetPriority(DMA1_Channel2_3_IRQn,
+                   TM_CONFIGURATION_INTERFACE_INTERRUPT_PRIORITY);
   NVIC_EnableIRQ(DMA1_Channel2_3_IRQn);  // (2)
 
   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_USART1EN);
-  USART1->BRR = SystemCoreClock / TM_DEBUG_INTERFACE_TRANSFER_BAUD_RATE;
+  USART1->BRR = SystemCoreClock / TM_CONFIGURATION_INTERFACE_TRANSFER_BAUD_RATE;
   SET_BIT(USART1->CR3, USART_CR3_DMAR);
   SET_BIT(USART1->CR1, USART_CR1_RE | USART_CR1_UE);  // (3)
 }
@@ -405,7 +406,7 @@ static void TmpUpdateSettings(void) {
 TpStatus TmInitialize(void) {
   TmpPrepareGpio();
   TmpSetupTimer();
-  TmpSetupDebugInterface();
+  TmpSetupConfigurationInterface();
   return DsInitialize();
 }
 
@@ -470,7 +471,7 @@ void TIM16_IRQHandler(void) {
 }
 
 /**
- * @brief Applies settings passed through the debug interface
+ * @brief Applies configuration passed via UART
  * @remark DMA interrupt routine
  */
 void DMA1_Channel2_3_IRQHandler(void) {

@@ -1,3 +1,7 @@
+/**
+ * @file
+ * @brief Control interface
+ */
 #pragma once
 #include <tools/status.h>
 
@@ -9,7 +13,7 @@ TpStatus CtrlInitialize(void);
 
 /**
  * @brief Updates image on the SSI panel and processes requests from external
- * devices (Bluetooth module, etc.)
+ * devices (Bluetooth module, etc. - if present)
  * @return TpSuccess
  */
 TpStatus CtrlProcessRequests(void);

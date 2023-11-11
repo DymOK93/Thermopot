@@ -2,10 +2,10 @@ cmake_minimum_required(VERSION 3.15)
 project(Thermopot)
 enable_language(C ASM)
 
-set(CC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-set(CMAKE_TOOLCHAIN_FILE "${CC_DIR}/tools/cmake/ArmNoneEabiGcc.cmake")
-set(LINKER_SCRIPT "${CC_DIR}/tools/link/STM32F051R8_FLASH.lds")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CC_DIR}/build")
+set(TP_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(CMAKE_TOOLCHAIN_FILE "${TP_DIR}/tools/cmake/ArmNoneEabiGcc.cmake")
+set(LINKER_SCRIPT "${TP_DIR}/tools/link/STM32F051R8_FLASH.lds")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${TP_DIR}/build")
 
 set(ARCHITECTURE_SPECIFIC_OPTIONS
         -mcpu=cortex-m0
